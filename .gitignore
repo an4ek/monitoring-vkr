@@ -1,0 +1,40 @@
+# --- Python / Django ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+staticfiles/
+media/
+db.sqlite3
+celerybeat-schedule*
+
+# --- Node / React ---
+node_modules/
+dist/
+build/
+.vite/
+npm-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# --- Секреты и локальные настройки ---
+.env
+.env.*
+!.env.example
+
+# --- Docker: локальные данные ---
+infra/data/
+stand/data/
+
+# --- IDE и система ---
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
