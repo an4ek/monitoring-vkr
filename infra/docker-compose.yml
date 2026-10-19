@@ -1,0 +1,65 @@
+# Инфраструктура системы для разработки: база данных, брокер, кэш, почта.
+# Запуск: cd infra && docker compose up -d
+# Остановка: docker compose down   (данные сохраняются)
+# Полный сброс данных: docker compose down -v
+
+name: vkr-infra
+
+services:
+  postgres:
+    image: postgres:16
+    container_name: vkr-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-monitoring}
+      POSTGRES_USER: ${POSTGRES_USER:-monitoring}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-monitoring}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-monitoring} -d ${POSTGRES_DB:-monitoring}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  rabbitmq:
+    image: rabbitmq:3.13-management
+    container_name: vkr-rabbitmq
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-monitoring}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-monitoring}
+    ports:
+      - "5672:5672"    # для Celery и бэкенда
+      - "15672:15672"  # веб-панель: http://localhost:15672
+    volumes:
+      - rabbitdata:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: vkr-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata:/data
+
+  mailpit:
+    image: axllent/mailpit
+    container_name: vkr-mailpit
+    restart: unless-stopped
+    ports:
+      - "1025:1025"  # SMTP: сюда бэкенд отправляет письма
+      - "8025:8025"  # веб-интерфейс: http://localhost:8025
+
+volumes:
+  pgdata:
+  rabbitdata:
+  redisdata:
