@@ -1,75 +1,47 @@
-# React + TypeScript + Vite
+# Фронтенд
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Веб-интерфейс системы: инциденты, сервисы, каталог ресурсов, подписки на оповещения.
 
-Currently, two official plugins are available:
+Стек: React + TypeScript, сборщик Vite, React Router (страницы), TanStack Query (загрузка данных с бэкенда).
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+## Запуск
 
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+Нужен Node.js 20 или новее (`node -v`).
 
 ```
-
-You can also install [eslint-plugin-react-x](https://npmx.dev/package/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://npmx.dev/package/eslint-plugin-react-dom) for React-specific lint rules:
-
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-
+cd frontend
+npm install
+npm run dev
 ```
+
+Открыть http://localhost:5173.
+
+`npm install` нужен только в первый раз и после того, как кто-то добавил новые библиотеки (поменялся `package.json`).
+
+## Связь с бэкендом
+
+Все запросы на `/api/...` Vite пересылает в Django на `http://localhost:8000` (настройка в `vite.config.ts`). Поэтому в коде пишем просто `fetch('/api/...')`, а CORS настраивать не нужно.
+
+В шапке есть индикатор: раз в 10 секунд он запрашивает `GET /api/health/`. Если Django не запущен, горит «Бэкенд не отвечает», а в терминале появляются строки `http proxy error … ECONNREFUSED`. Это нормально.
+
+## Структура
+
+| Путь | Что там |
+|---|---|
+| `src/main.tsx` | Точка входа: подключает роутер и TanStack Query |
+| `src/App.tsx` | Какой адрес какую страницу показывает |
+| `src/components/Layout.tsx` | Каркас: меню слева, шапка, место под страницу |
+| `src/components/BackendStatus.tsx` | Индикатор бэкенда в шапке |
+| `src/api/client.ts` | Функции для запросов к бэкенду |
+| `src/pages/` | Страницы: Инциденты, Сервисы, Каталог, Подписки |
+| `src/index.css` | Стили, цвета вынесены в начало файла |
+
+## Команды
+
+| Команда | Что делает |
+|---|---|
+| `npm run dev` | Запуск для разработки, страница обновляется сама при сохранении файла |
+| `npm run lint` | Проверка кода ESLint |
+| `npm run build` | Проверка типов TypeScript и сборка в папку `dist/` |
+
+Остановить запущенный сайт: Ctrl+C в терминале.
