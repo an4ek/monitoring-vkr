@@ -8,7 +8,7 @@ export async function apiGet<T>(path: string): Promise<T> {
   return response.json() as Promise<T>
 }
 
-// Проверка, что бэкенд жив. Лиза делает в Django адрес /api/health/.
+// Проверка, что бэкенд жив: Django отвечает на /api/health/.
 export type Health = { status: string }
 
 export function fetchHealth() {

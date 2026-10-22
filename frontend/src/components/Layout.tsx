@@ -1,4 +1,5 @@
 import { NavLink, Outlet } from 'react-router'
+import { Tag } from 'antd'
 import BackendStatus from './BackendStatus.tsx'
 
 const menu = [
@@ -32,6 +33,8 @@ export default function Layout() {
 
       <div className="main">
         <header className="header">
+          {/* Пока страницы работают на тестовых данных из src/mocks — честно показываем это */}
+          <Tag color="gold">Тестовые данные</Tag>
           <BackendStatus />
         </header>
         <main className="content">
