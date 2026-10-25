@@ -13,6 +13,7 @@ staticfiles/
 media/
 db.sqlite3
 celerybeat-schedule*
+*.pyc
 
 # --- Node / React ---
 node_modules/
