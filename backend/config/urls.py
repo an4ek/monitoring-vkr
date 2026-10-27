@@ -19,5 +19,7 @@ from django.urls import path, include
 
 urlpatterns = [
     path('admin/', admin.site.urls),
+    # Сначала прием событий и действия с инцидентами, потом API каталога и инцидентов
+    path('api/', include('processing.urls')),
     path('api/', include('api.urls')),
 ]

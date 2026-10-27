@@ -39,3 +39,4 @@ stand/data/
 *.swp
 .DS_Store
 Thumbs.db
+.demo_event_ids.json

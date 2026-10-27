@@ -10,6 +10,7 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/6.1/ref/settings/
 """
 
+import os
 from pathlib import Path
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -39,6 +40,7 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'rest_framework',
     'api',
+    'processing',
 ]
 
 MIDDLEWARE = [
@@ -80,8 +82,8 @@ DATABASES = {
         'NAME': 'monitoring',
         'USER': 'monitoring',
         'PASSWORD': 'monitoring',
-        'HOST': 'localhost',
-        'PORT': '5432',
+        'HOST': os.environ.get('POSTGRES_HOST', 'localhost'),
+        'PORT': os.environ.get('POSTGRES_PORT', '5432'),
     }
 }
 
@@ -126,9 +128,15 @@ STATIC_URL = 'static/'
 # Email
 # https://docs.djangoproject.com/en/6.1/topics/email/#topic-email-configuration
 
+# Почта (в Django 6.1 настраивается через MAILERS). При разработке письма уходят
+# в Mailpit из infra/docker-compose.yml, посмотреть их: http://localhost:8025
 MAILERS = {
     'default': {
-        'BACKEND': 'django.core.mail.backends.console.EmailBackend',
+        'BACKEND': 'django.core.mail.backends.smtp.EmailBackend',
+        'OPTIONS': {
+            'host': os.environ.get('EMAIL_HOST', 'localhost'),
+            'port': int(os.environ.get('EMAIL_PORT', '1025')),
+        },
     },
 }
 
@@ -143,3 +151,35 @@ REST_FRAMEWORK = {
         'rest_framework.renderers.BrowsableAPIRenderer',
     ],
 }
+
+# --- Обработка событий и оповещения ---
+
+# Брокер сообщений RabbitMQ: очередь задач для обработчика (Celery)
+CELERY_BROKER_URL = os.environ.get('CELERY_BROKER_URL', 'amqp://monitoring:monitoring@localhost:5672//')
+CELERY_TASK_SERIALIZER = 'json'
+CELERY_TIMEZONE = TIME_ZONE
+
+# Окно группировки: событие попадает в незакрытый инцидент, если его ресурс
+# связан зависимостями с ресурсами инцидента и в инциденте были события
+# за последние N минут
+EVENT_GROUP_WINDOW_MINUTES = int(os.environ.get('EVENT_GROUP_WINDOW_MINUTES', '5'))
+
+# Секретный ключ для приема событий. Если задан, мониторинг должен передавать его
+# в заголовке X-Webhook-Token. Пустая строка — проверка отключена (для разработки).
+WEBHOOK_TOKEN = os.environ.get('WEBHOOK_TOKEN', '')
+
+# Адрес отправителя оповещений (сама почта настроена выше, в MAILERS)
+DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', 'monitoring@example.local')
+
+# Mattermost: адрес входящего вебхука канала. Пусто — в Mattermost не отправляем.
+MATTERMOST_WEBHOOK_URL = os.environ.get('MATTERMOST_WEBHOOK_URL', '')
+
+# Кому писать, если пришло событие о ресурсе, которого нет в каталоге
+ADMIN_NOTIFY_EMAIL = os.environ.get('ADMIN_NOTIFY_EMAIL', 'admin@example.local')
+
+# Повтор отправки оповещения при ошибке: 3 раза с интервалом 1 минута
+NOTIFY_MAX_RETRIES = 3
+NOTIFY_RETRY_DELAY_SECONDS = 60
+
+# Адрес веб-интерфейса — для ссылки на инцидент в оповещении
+FRONTEND_URL = os.environ.get('FRONTEND_URL', 'http://localhost:5173')
