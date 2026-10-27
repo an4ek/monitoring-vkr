@@ -32,7 +32,7 @@ npm run dev
 | `src/App.tsx` | Какой адрес какую страницу показывает |
 | `src/components/Layout.tsx` | Каркас: меню слева, шапка, место под страницу |
 | `src/components/BackendStatus.tsx` | Индикатор бэкенда в шапке |
-| `src/components/CurrentUserSelect.tsx` | Выбор «кто я» в шапке — временно, пока нет входа в систему |
+| `src/components/RequireAuth.tsx`, `src/pages/LoginPage.tsx` | Вход в систему: без входа страницы не открываются |
 | `src/api/client.ts` | Функции для запросов к бэкенду |
 | `src/pages/` | Страницы: Инциденты, Сервисы, Каталог, Подписки |
 | `src/index.css` | Стили, цвета вынесены в начало файла |

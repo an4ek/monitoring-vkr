@@ -27,9 +27,8 @@ export const fetchIncident = (id: number) => apiGet<Incident>(`/incidents/${id}/
 export const fetchIncidentEvents = (incidentId: number) =>
   apiGet<MonitoringEvent[]>(`/incidents/${incidentId}/events/`)
 
-// Разбор инцидента. Пока нет входа в систему, передаём, кто нажал кнопку (personId).
-export const takeIncident = (id: number, personId: number) =>
-  apiPost<Incident>(`/incidents/${id}/take/`, { person_id: personId })
+// Разбор инцидента (только инженер). Кто нажал, бэкенд берёт из входа в систему.
+export const takeIncident = (id: number) => apiPost<Incident>(`/incidents/${id}/take/`)
 
-export const closeIncident = (id: number, personId: number, comment: string) =>
-  apiPost<Incident>(`/incidents/${id}/close/`, { person_id: personId, comment })
+export const closeIncident = (id: number, comment: string) =>
+  apiPost<Incident>(`/incidents/${id}/close/`, { comment })

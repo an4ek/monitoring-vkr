@@ -13,6 +13,8 @@ https://docs.djangoproject.com/en/6.1/ref/settings/
 import os
 from pathlib import Path
 
+from django.core.exceptions import ImproperlyConfigured
+
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -21,12 +23,21 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/6.1/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-(gspdd28))xwtm9cluqfy$_z&hayn^zq1uw))x=+ap%m!xf)mn'
+# Режим разработки включен по умолчанию. На сервере задать DJANGO_DEBUG=0
+# и свой DJANGO_SECRET_KEY — без них сервер не запустится.
+DEBUG = os.environ.get('DJANGO_DEBUG', '1') == '1'
+SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY') or (
+    'django-insecure-(gspdd28))xwtm9cluqfy$_z&hayn^zq1uw))x=+ap%m!xf)mn' if DEBUG else None
+)
+if not SECRET_KEY:
+    raise ImproperlyConfigured('Задайте DJANGO_SECRET_KEY')
+# Команды для показа (demo_reset) стирают данные и создают пользователей
+# с известным паролем, поэтому работают только в режиме разработки
+DEMO_COMMANDS_ENABLED = DEBUG
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = os.environ.get('DJANGO_ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',')
 
 
 # Application definition
@@ -41,6 +52,7 @@ INSTALLED_APPS = [
     'rest_framework',
     'api',
     'processing',
+    'accounts',
 ]
 
 MIDDLEWARE = [
@@ -146,6 +158,9 @@ TIME_ZONE = 'Asia/Novokuznetsk'
 USE_TZ = True
 
 REST_FRAMEWORK = {
+    # Вход по сессии; без входа API данные не отдает
+    'DEFAULT_AUTHENTICATION_CLASSES': ['rest_framework.authentication.SessionAuthentication'],
+    'DEFAULT_PERMISSION_CLASSES': ['rest_framework.permissions.IsAuthenticated'],
     'DEFAULT_RENDERER_CLASSES': [
         'rest_framework.renderers.JSONRenderer',
         'rest_framework.renderers.BrowsableAPIRenderer',
@@ -164,9 +179,19 @@ CELERY_TIMEZONE = TIME_ZONE
 # за последние N минут
 EVENT_GROUP_WINDOW_MINUTES = int(os.environ.get('EVENT_GROUP_WINDOW_MINUTES', '5'))
 
-# Секретный ключ для приема событий. Если задан, мониторинг должен передавать его
-# в заголовке X-Webhook-Token. Пустая строка — проверка отключена (для разработки).
-WEBHOOK_TOKEN = os.environ.get('WEBHOOK_TOKEN', '')
+# Секретный ключ для приема событий: мониторинг передает его в заголовке
+# X-Webhook-Token, иначе событие не принимается. При разработке есть ключ
+# по умолчанию, на сервере его обязательно задать через WEBHOOK_TOKEN.
+WEBHOOK_TOKEN = os.environ.get('WEBHOOK_TOKEN') or ('dev-webhook-token' if DEBUG else None)
+if not WEBHOOK_TOKEN:
+    raise ImproperlyConfigured('Задайте WEBHOOK_TOKEN')
+
+# Фронтенд в разработке открыт на другом порту, ему разрешаем отправлять формы
+CSRF_TRUSTED_ORIGINS = os.environ.get('CSRF_TRUSTED_ORIGINS', 'http://localhost:5173').split(',')
+SESSION_COOKIE_SAMESITE = 'Lax'
+CSRF_COOKIE_SAMESITE = 'Lax'
+SESSION_COOKIE_SECURE = not DEBUG
+CSRF_COOKIE_SECURE = not DEBUG
 
 # Адрес отправителя оповещений (сама почта настроена выше, в MAILERS)
 DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', 'monitoring@example.local')

@@ -1,12 +1,14 @@
 """Проверки обработки событий. Запуск: python manage.py test processing"""
 from unittest import mock
 
+from django.conf import settings
+from django.contrib.auth.models import User
 from django.core.management import call_command
 from django.test import TestCase, override_settings
 
 from api.models import Incident, Service
 from processing import logic
-from processing.models import IncomingEvent, Notification, ResourceState
+from processing.models import IncomingEvent, Notification, ResourceState, Subscription
 from processing.normalize import from_alertmanager, from_zabbix
 from processing.tasks import send_notifications
 
@@ -16,6 +18,8 @@ def zabbix(event_id, host, kind='problem', severity='critical', title='Нет о
             'resource_name': host, 'title': title, 'severity': severity}
 
 
+# Быстрый хеш паролей только для проверок, чтобы тесты не шли минуту
+@override_settings(PASSWORD_HASHERS=['django.contrib.auth.hashers.MD5PasswordHasher'])
 class ProcessingTests(TestCase):
     def setUp(self):
         with mock.patch('sys.stdout'):
@@ -71,3 +75,53 @@ class ProcessingTests(TestCase):
         fix = notes.get(kind='fix')
         self.assertEqual(fix.person.full_name, 'Иванов Сергей')  # ответственный за web-01
         self.assertTrue(all(n.status == 'sent' for n in notes))
+
+
+# Быстрый хеш паролей только для проверок, чтобы тесты не шли минуту
+@override_settings(PASSWORD_HASHERS=['django.contrib.auth.hashers.MD5PasswordHasher'])
+class AccessTests(TestCase):
+    """Права: без входа ничего, мониторинг — только с ключом, разбор инцидента — только инженер."""
+
+    def setUp(self):
+        with mock.patch('sys.stdout'):
+            call_command('demo_reset')
+
+    def login(self, username):
+        self.client.force_login(User.objects.get(username=username))
+
+    def test_api_requires_login(self):
+        self.assertEqual(self.client.get('/api/incidents/').status_code, 403)
+        self.assertEqual(self.client.get('/api/health/').status_code, 200)
+        self.login('orlova')
+        self.assertEqual(self.client.get('/api/incidents/').status_code, 200)
+
+    @mock.patch('processing.views.process_event.delay')
+    def test_webhook_requires_token(self, delay):
+        body = {'event_id': 1, 'host': 'web-01', 'name': 'x'}
+        self.assertEqual(self.client.post('/api/events/zabbix/', body, content_type='application/json').status_code, 403)
+        response = self.client.post('/api/events/zabbix/', body, content_type='application/json',
+                                    headers={'X-Webhook-Token': settings.WEBHOOK_TOKEN})
+        self.assertEqual(response.status_code, 202)
+        delay.assert_called_once()
+
+    def test_only_engineer_takes_and_closes(self):
+        for username in ('admin', 'orlova'):
+            self.login(username)
+            self.assertEqual(self.client.post('/api/incidents/1/take/').status_code, 403)
+            self.assertEqual(self.client.post('/api/incidents/1/close/').status_code, 403)
+        self.login('ivanov')
+        response = self.client.post('/api/incidents/1/take/')
+        self.assertEqual(response.json()['assignee_id'], 1)
+        response = self.client.post('/api/incidents/1/close/', {'comment': 'Готово'}, content_type='application/json')
+        self.assertEqual((response.json()['status'], response.json()['closed_by_id']), ('resolved', 1))
+
+    def test_subscriptions_are_personal(self):
+        self.login('orlova')
+        own = self.client.get('/api/subscriptions/').json()
+        self.assertEqual([s['person_id'] for s in own], [4])  # чужие подписки не видны
+        petrova_sub = Subscription.objects.get(person_id=2)
+        self.assertEqual(self.client.delete(f'/api/subscriptions/{petrova_sub.id}/').status_code, 404)
+        created = self.client.post('/api/subscriptions/', {'service_id': 2, 'person_id': 2}, content_type='application/json')
+        self.assertEqual(created.json()['person_id'], 4)  # подписаться можно только самому
+        self.login('admin')
+        self.assertEqual(self.client.get('/api/subscriptions/').status_code, 403)

@@ -1,7 +1,9 @@
-import { NavLink, Outlet } from 'react-router'
-import { Tag } from 'antd'
+import { NavLink, Outlet, useNavigate } from 'react-router'
+import { useQueryClient } from '@tanstack/react-query'
+import { Button, Tag } from 'antd'
 import BackendStatus from './BackendStatus.tsx'
-import CurrentUserSelect from './CurrentUserSelect.tsx'
+import { logout } from '../api/auth.ts'
+import { useAuth } from '../hooks/useAuth.ts'
 
 const menu = [
   { to: '/incidents', label: 'Инциденты' },
@@ -13,6 +15,16 @@ const menu = [
 // Общий каркас всех страниц: меню слева, шапка сверху,
 // а на место <Outlet /> подставляется текущая страница.
 export default function Layout() {
+  const { me } = useAuth()
+  const queryClient = useQueryClient()
+  const navigate = useNavigate()
+
+  const onLogout = async () => {
+    await logout().catch(() => undefined)
+    queryClient.clear() // стираем данные из памяти страницы
+    navigate('/login', { replace: true })
+  }
+
   return (
     <div className="layout">
       <aside className="sidebar">
@@ -37,9 +49,15 @@ export default function Layout() {
           {/* Данные приходят с бэкенда, но в базе пока тестовый каталог — честно показываем это */}
           <Tag color="gold">Тестовые данные</Tag>
           <BackendStatus />
-          <span className="header__user">
-            Вы: <CurrentUserSelect />
-          </span>
+          {me && (
+            <span className="header__user">
+              {me.full_name}
+              <Tag>{me.role_label}</Tag>
+              <Button size="small" onClick={onLogout}>
+                Выйти
+              </Button>
+            </span>
+          )}
         </header>
         <main className="content">
           <Outlet />

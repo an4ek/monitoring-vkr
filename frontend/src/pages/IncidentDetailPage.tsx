@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Alert, App, Button, Card, Col, Descriptions, Input, Modal, Result, Row, Space, Spin, Table, Tag, Timeline } from 'antd'
 import type { TableProps } from 'antd'
 import { closeIncident, fetchIncident, fetchIncidentEvents, takeIncident } from '../api/incidents.ts'
-import { useCurrentUser } from '../hooks/useCurrentUser.ts'
+import { useAuth } from '../hooks/useAuth.ts'
 import { useCatalog } from '../hooks/useCatalog.ts'
 import { IncidentStatusTag, ServiceStatusTag, SeverityTag } from '../components/StatusTags.tsx'
 import { formatDateTime, formatDuration, formatTime } from '../utils/format.ts'
@@ -27,7 +27,7 @@ export default function IncidentDetailPage() {
   // Кнопки «Взять в работу» и «Закрыть»
   const { message } = App.useApp()
   const queryClient = useQueryClient()
-  const currentUser = useCurrentUser()
+  const { isEngineer } = useAuth()
   const [closeOpen, setCloseOpen] = useState(false)
   const [comment, setComment] = useState('')
 
@@ -37,12 +37,12 @@ export default function IncidentDetailPage() {
     queryClient.invalidateQueries({ queryKey: ['incidents'] })
   }
   const take = useMutation({
-    mutationFn: () => takeIncident(id, currentUser!),
+    mutationFn: () => takeIncident(id),
     onSuccess: () => onDone('Инцидент взят в работу'),
     onError: (error) => message.error(error.message),
   })
   const close = useMutation({
-    mutationFn: () => closeIncident(id, currentUser!, comment),
+    mutationFn: () => closeIncident(id, comment),
     onSuccess: () => {
       setCloseOpen(false)
       setComment('')
@@ -68,6 +68,8 @@ export default function IncidentDetailPage() {
   const data = incident.data
   const rootCause = catalog.resourcesById.get(data.root_cause_id)
   const responsible = catalog.peopleById.get(data.responsible_id)
+  const assignee = data.assignee_id ? catalog.peopleById.get(data.assignee_id) : undefined
+  const closedBy = data.closed_by_id ? catalog.peopleById.get(data.closed_by_id) : undefined
 
   const eventColumns: TableProps<MonitoringEvent>['columns'] = [
     { title: 'Время', dataIndex: 'received_at', render: (value: string) => formatTime(value) },
@@ -109,17 +111,15 @@ export default function IncidentDetailPage() {
         </Space>
       </div>
 
-      {data.status !== 'resolved' && (
+      {/* Брать в работу и закрывать может только инженер, остальные роли только смотрят */}
+      {data.status !== 'resolved' && isEngineer && (
         <Space>
           {data.status === 'open' && (
-            <Button type="primary" disabled={!currentUser} loading={take.isPending} onClick={() => take.mutate()}>
+            <Button type="primary" loading={take.isPending} onClick={() => take.mutate()}>
               Взять в работу
             </Button>
           )}
-          <Button disabled={!currentUser} onClick={() => setCloseOpen(true)}>
-            Закрыть
-          </Button>
-          {!currentUser && <span className="hint">Выберите себя в шапке справа, чтобы работать с инцидентом</span>}
+          <Button onClick={() => setCloseOpen(true)}>Закрыть</Button>
         </Space>
       )}
 
@@ -158,6 +158,10 @@ export default function IncidentDetailPage() {
               items={[
                 { label: 'Ответственный', children: responsible?.full_name ?? '—' },
                 { label: 'Контакты', children: responsible ? `${responsible.mattermost}, ${responsible.email}` : '—' },
+                { label: 'Взял в работу', children: assignee?.full_name ?? 'пока никто' },
+                ...(data.status === 'resolved'
+                  ? [{ label: 'Закрыл', children: closedBy?.full_name ?? 'закрыт автоматически' }]
+                  : []),
                 { label: 'Начало', children: formatDateTime(data.started_at) },
                 { label: 'Длительность', children: formatDuration(data.started_at, data.resolved_at) },
                 {

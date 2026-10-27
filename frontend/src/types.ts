@@ -74,7 +74,21 @@ export type Incident = {
   root_cause_id: number // ресурс-первопричина
   affected_service_ids: number[]
   responsible_id: number
+  assignee_id: number | null // кто взял в работу
+  closed_by_id: number | null // кто закрыл вручную (пусто, если закрылся сам)
   started_at: string
   resolved_at: string | null
   history: IncidentHistoryItem[]
+}
+
+// Роли пользователей системы (диаграмма вариантов использования)
+export type Role = 'admin' | 'engineer' | 'manager'
+
+// Вошедший пользователь
+export type Me = {
+  username: string
+  role: Role
+  role_label: string
+  person_id: number | null
+  full_name: string
 }

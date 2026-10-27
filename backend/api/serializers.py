@@ -60,6 +60,8 @@ class IncidentSerializer(serializers.ModelSerializer):
         source='affected_services', many=True, read_only=True,
     )
     responsible_id = serializers.IntegerField(source='responsible.id', read_only=True)
+    assignee_id = serializers.PrimaryKeyRelatedField(source='assignee', read_only=True)
+    closed_by_id = serializers.PrimaryKeyRelatedField(source='closed_by', read_only=True)
     history = IncidentHistoryItemSerializer(many=True, read_only=True)
 
     class Meta:
@@ -67,7 +69,7 @@ class IncidentSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'title', 'status', 'severity',
             'root_cause_id', 'affected_service_ids', 'responsible_id',
-            'started_at', 'resolved_at', 'history',
+            'assignee_id', 'closed_by_id', 'started_at', 'resolved_at', 'history',
         ]
 
 

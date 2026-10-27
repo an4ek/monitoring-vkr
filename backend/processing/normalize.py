@@ -13,6 +13,11 @@ Zabbix и Alertmanager присылают данные в разном форм�
 """
 
 
+def _clip(value, limit):
+    """Обрезает слишком длинный текст, чтобы он поместился в базу."""
+    return str(value)[:limit]
+
+
 class InvalidEvent(ValueError):
     """Событие нельзя разобрать: не хватает обязательных полей."""
 
@@ -34,6 +39,8 @@ def from_zabbix(data: dict) -> list[dict]:
          "host": "{HOST.HOST}", "name": "{EVENT.NAME}", "severity": "{EVENT.NSEVERITY}"}
     status: 1 — сбой, 0 — восстановление (можно и словами PROBLEM / RESOLVED).
     """
+    if not isinstance(data, dict):
+        raise InvalidEvent('Ожидается JSON-объект')
     try:
         event_id = str(data['event_id'])
         host = str(data['host'])
@@ -46,10 +53,10 @@ def from_zabbix(data: dict) -> list[dict]:
     severity = ZABBIX_SEVERITY.get(str(data.get('severity', '4')), 'warning')
     return [{
         'source': 'zabbix',
-        'external_id': event_id,
+        'external_id': _clip(event_id, 200),
         'kind': kind,
-        'resource_name': host,
-        'title': name,
+        'resource_name': _clip(host, 200),
+        'title': _clip(name, 300),
         'severity': severity,
     }]
 
@@ -60,14 +67,18 @@ def from_alertmanager(data: dict) -> list[dict]:
     В одном запросе может быть несколько алертов. Ресурс берется из метки
     resource, а если ее нет — из метки instance без номера порта.
     """
+    if not isinstance(data, dict):
+        raise InvalidEvent('Ожидается JSON-объект')
     alerts = data.get('alerts')
     if not isinstance(alerts, list):
         raise InvalidEvent('В событии Alertmanager нет списка alerts')
 
     result = []
     for alert in alerts:
-        labels = alert.get('labels', {})
-        annotations = alert.get('annotations', {})
+        if not isinstance(alert, dict):
+            raise InvalidEvent('Алерт должен быть JSON-объектом')
+        labels = alert.get('labels') if isinstance(alert.get('labels'), dict) else {}
+        annotations = alert.get('annotations') if isinstance(alert.get('annotations'), dict) else {}
         resource_name = labels.get('resource') or labels.get('instance', '').split(':')[0]
         if not resource_name:
             raise InvalidEvent('У алерта нет меток resource и instance')
@@ -78,10 +89,10 @@ def from_alertmanager(data: dict) -> list[dict]:
         external_id = f"{alert.get('fingerprint', labels.get('alertname', ''))}:{alert.get('startsAt', '')}"
         result.append({
             'source': 'prometheus',
-            'external_id': external_id,
+            'external_id': _clip(external_id, 200),
             'kind': 'recovery' if alert.get('status') == 'resolved' else 'problem',
-            'resource_name': resource_name,
-            'title': annotations.get('summary') or labels.get('alertname', 'Алерт Prometheus'),
+            'resource_name': _clip(resource_name, 200),
+            'title': _clip(annotations.get('summary') or labels.get('alertname', 'Алерт Prometheus'), 300),
             'severity': severity,
         })
     return result

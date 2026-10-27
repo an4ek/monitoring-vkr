@@ -41,9 +41,8 @@ class Command(BaseCommand):
         parser.add_argument('--recover', action='store_true', help='Прислать события о восстановлении')
 
     def post(self, url, payload):
-        headers = {'Content-Type': 'application/json'}
-        if settings.WEBHOOK_TOKEN:
-            headers['X-Webhook-Token'] = settings.WEBHOOK_TOKEN
+        # Ключ, по которому система узнает «свой» мониторинг
+        headers = {'Content-Type': 'application/json', 'X-Webhook-Token': settings.WEBHOOK_TOKEN}
         request = urllib.request.Request(url, data=json.dumps(payload).encode(), headers=headers, method='POST')
         with urllib.request.urlopen(request, timeout=10) as response:
             return response.status, json.loads(response.read())

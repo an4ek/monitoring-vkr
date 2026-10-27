@@ -64,6 +64,8 @@ export const incidents: Incident[] = [
     root_cause_id: 8,
     affected_service_ids: [2, 3],
     responsible_id: 1,
+    assignee_id: null,
+    closed_by_id: null,
     started_at: '2026-10-22T09:14:05+07:00',
     resolved_at: null,
     history: [
@@ -80,6 +82,8 @@ export const incidents: Incident[] = [
     root_cause_id: 13,
     affected_service_ids: [5],
     responsible_id: 2,
+    assignee_id: 2,
+    closed_by_id: null,
     started_at: '2026-10-22T07:40:00+07:00',
     resolved_at: null,
     history: [
@@ -96,6 +100,8 @@ export const incidents: Incident[] = [
     root_cause_id: 1,
     affected_service_ids: [1, 2, 3, 4, 5, 6],
     responsible_id: 1,
+    assignee_id: 1,
+    closed_by_id: 1,
     started_at: '2026-10-20T13:02:10+07:00',
     resolved_at: '2026-10-20T13:27:00+07:00',
     history: [
@@ -114,6 +120,8 @@ export const incidents: Incident[] = [
     root_cause_id: 11,
     affected_service_ids: [4],
     responsible_id: 1,
+    assignee_id: 1,
+    closed_by_id: 1,
     started_at: '2026-10-19T10:15:00+07:00',
     resolved_at: '2026-10-19T10:50:00+07:00',
     history: [

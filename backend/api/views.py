@@ -2,7 +2,8 @@ from django.shortcuts import render
 
 from django.http import JsonResponse
 from rest_framework import viewsets
-from rest_framework.decorators import api_view, action
+from rest_framework.decorators import api_view, action, permission_classes
+from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 
 from .models import (
@@ -16,6 +17,7 @@ from .serializers import (
 
 
 @api_view(['GET'])
+@permission_classes([AllowAny])  # индикатор «бэкенд подключен» работает и до входа
 def health(request):
     return Response({'status': 'ok'})
 

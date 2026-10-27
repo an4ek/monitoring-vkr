@@ -90,6 +90,9 @@ class Incident(models.Model):
     root_cause = models.ForeignKey(Resource, on_delete=models.PROTECT, related_name='incidents_as_root_cause')
     affected_services = models.ManyToManyField(Service, blank=True, related_name='incidents')
     responsible = models.ForeignKey(Person, on_delete=models.PROTECT, related_name='responsible_incidents')
+    # Кто взял инцидент в работу и кто закрыл вручную (пусто, если закрыт автоматически)
+    assignee = models.ForeignKey(Person, null=True, blank=True, on_delete=models.SET_NULL, related_name='assigned_incidents')
+    closed_by = models.ForeignKey(Person, null=True, blank=True, on_delete=models.SET_NULL, related_name='closed_incidents')
     started_at = models.DateTimeField()
     resolved_at = models.DateTimeField(null=True, blank=True)
 

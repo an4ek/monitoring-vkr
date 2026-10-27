@@ -45,6 +45,11 @@ export default function IncidentsPage() {
       render: (id: number) => catalog.resourcesById.get(id)?.name ?? '—',
     },
     {
+      title: 'Исполнитель',
+      dataIndex: 'assignee_id',
+      render: (id: number | null) => (id ? catalog.peopleById.get(id)?.full_name : '—'),
+    },
+    {
       title: 'Затронутые сервисы',
       dataIndex: 'affected_service_ids',
       render: (ids: number[]) => (
