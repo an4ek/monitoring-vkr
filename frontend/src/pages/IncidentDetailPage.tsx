@@ -1,8 +1,10 @@
 import { Link, useParams } from 'react-router'
-import { useQuery } from '@tanstack/react-query'
-import { Alert, Card, Col, Descriptions, Result, Row, Space, Spin, Table, Tag, Timeline } from 'antd'
+import { useState } from 'react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { Alert, App, Button, Card, Col, Descriptions, Input, Modal, Result, Row, Space, Spin, Table, Tag, Timeline } from 'antd'
 import type { TableProps } from 'antd'
-import { fetchIncident, fetchIncidentEvents } from '../api/incidents.ts'
+import { closeIncident, fetchIncident, fetchIncidentEvents, takeIncident } from '../api/incidents.ts'
+import { useCurrentUser } from '../hooks/useCurrentUser.ts'
 import { useCatalog } from '../hooks/useCatalog.ts'
 import { IncidentStatusTag, ServiceStatusTag, SeverityTag } from '../components/StatusTags.tsx'
 import { formatDateTime, formatDuration, formatTime } from '../utils/format.ts'
@@ -17,9 +19,37 @@ export default function IncidentDetailPage() {
     queryKey: ['incident', id],
     queryFn: () => fetchIncident(id),
     retry: false, // если инцидента нет, сразу показываем «не найден», без повторных попыток
+    refetchInterval: 5_000, // новые события и смена первопричины видны сразу
   })
-  const events = useQuery({ queryKey: ['events', id], queryFn: () => fetchIncidentEvents(id) })
+  const events = useQuery({ queryKey: ['events', id], queryFn: () => fetchIncidentEvents(id), refetchInterval: 5_000 })
   const catalog = useCatalog()
+
+  // Кнопки «Взять в работу» и «Закрыть»
+  const { message } = App.useApp()
+  const queryClient = useQueryClient()
+  const currentUser = useCurrentUser()
+  const [closeOpen, setCloseOpen] = useState(false)
+  const [comment, setComment] = useState('')
+
+  const onDone = (text: string) => {
+    message.success(text)
+    queryClient.invalidateQueries({ queryKey: ['incident', id] })
+    queryClient.invalidateQueries({ queryKey: ['incidents'] })
+  }
+  const take = useMutation({
+    mutationFn: () => takeIncident(id, currentUser!),
+    onSuccess: () => onDone('Инцидент взят в работу'),
+    onError: (error) => message.error(error.message),
+  })
+  const close = useMutation({
+    mutationFn: () => closeIncident(id, currentUser!, comment),
+    onSuccess: () => {
+      setCloseOpen(false)
+      setComment('')
+      onDone('Инцидент закрыт')
+    },
+    onError: (error) => message.error(error.message),
+  })
 
   if (incident.isError) {
     return (
@@ -78,6 +108,38 @@ export default function IncidentDetailPage() {
           <SeverityTag severity={data.severity} />
         </Space>
       </div>
+
+      {data.status !== 'resolved' && (
+        <Space>
+          {data.status === 'open' && (
+            <Button type="primary" disabled={!currentUser} loading={take.isPending} onClick={() => take.mutate()}>
+              Взять в работу
+            </Button>
+          )}
+          <Button disabled={!currentUser} onClick={() => setCloseOpen(true)}>
+            Закрыть
+          </Button>
+          {!currentUser && <span className="hint">Выберите себя в шапке справа, чтобы работать с инцидентом</span>}
+        </Space>
+      )}
+
+      <Modal
+        title={`Закрыть инцидент №${data.id}`}
+        open={closeOpen}
+        okText="Закрыть инцидент"
+        cancelText="Отмена"
+        confirmLoading={close.isPending}
+        onOk={() => close.mutate()}
+        onCancel={() => setCloseOpen(false)}
+      >
+        <p>Обычно инцидент закрывается сам, когда мониторинг сообщает, что все ресурсы восстановились. Закрыть вручную нужно, если такого сообщения не будет или сбой оказался ложным.</p>
+        <Input.TextArea
+          rows={3}
+          placeholder="Что сделано (необязательно)"
+          value={comment}
+          onChange={(event) => setComment(event.target.value)}
+        />
+      </Modal>
 
       {rootCause && (
         <Alert

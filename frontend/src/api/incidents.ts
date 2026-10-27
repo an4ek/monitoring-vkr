@@ -17,7 +17,7 @@
 
 
 // Запросы инцидентов и событий — с реального бэкенда.
-import { apiGet } from './client.ts'
+import { apiGet, apiPost } from './client.ts'
 import type { Incident, MonitoringEvent } from '../types.ts'
 
 export const fetchIncidents = () => apiGet<Incident[]>('/incidents/')
@@ -26,3 +26,10 @@ export const fetchIncident = (id: number) => apiGet<Incident>(`/incidents/${id}/
 
 export const fetchIncidentEvents = (incidentId: number) =>
   apiGet<MonitoringEvent[]>(`/incidents/${incidentId}/events/`)
+
+// Разбор инцидента. Пока нет входа в систему, передаём, кто нажал кнопку (personId).
+export const takeIncident = (id: number, personId: number) =>
+  apiPost<Incident>(`/incidents/${id}/take/`, { person_id: personId })
+
+export const closeIncident = (id: number, personId: number, comment: string) =>
+  apiPost<Incident>(`/incidents/${id}/close/`, { person_id: personId, comment })

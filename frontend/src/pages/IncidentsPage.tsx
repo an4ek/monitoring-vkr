@@ -14,7 +14,8 @@ type Filter = 'all' | IncidentStatus
 // Список инцидентов: каждый сбой одной строкой, сверху фильтр по статусу
 export default function IncidentsPage() {
   const [filter, setFilter] = useState<Filter>('all')
-  const incidents = useQuery({ queryKey: ['incidents'], queryFn: fetchIncidents })
+  // Обновляем список каждые 5 секунд: новый инцидент появляется сам, без перезагрузки
+  const incidents = useQuery({ queryKey: ['incidents'], queryFn: fetchIncidents, refetchInterval: 5_000 })
   const catalog = useCatalog()
 
   const rows = (incidents.data ?? [])

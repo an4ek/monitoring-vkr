@@ -12,7 +12,7 @@
 |---|---|---|
 | `backend/` | Сервер: Python, Django, Django REST Framework, Celery | Бэкенд |
 | `frontend/` | Интерфейс: React, TypeScript | Фронтенд |
-| `infra/` | docker-compose для инфраструктуры системы: PostgreSQL, RabbitMQ, Redis, Mailpit | Фронтенд |
+| `infra/` | docker-compose для инфраструктуры системы: PostgreSQL, RabbitMQ, Mailpit | Фронтенд |
 | `stand/` | Тестовый стенд: Zabbix, Prometheus, наблюдаемые сервисы, Mattermost | Фронтенд |
 | `docs/` | Диаграммы, схемы, черновики глав | Оба |
 
@@ -20,7 +20,7 @@
 
 - **Фронтенд:** React, TypeScript, React Router, TanStack Query
 - **Бэкенд:** Python, Django, Django REST Framework, Celery
-- **Брокер и кэш:** RabbitMQ, Redis
+- **Брокер сообщений:** RabbitMQ
 - **База данных:** PostgreSQL
 - **Источники событий (стенд):** Zabbix, Prometheus + Alertmanager
 - **Каналы оповещений:** Mattermost (на собственном сервере), электронная почта
@@ -39,5 +39,5 @@
 
 - инфраструктура: `cd infra && docker compose up -d`
 - стенд: `cd stand && docker compose up -d`
-- бэкенд: см. `backend/README.md`
+- бэкенд и обработчик событий: см. `backend/README.md`
 - фронтенд: см. `frontend/README.md`

@@ -1,6 +1,7 @@
 import { NavLink, Outlet } from 'react-router'
 import { Tag } from 'antd'
 import BackendStatus from './BackendStatus.tsx'
+import CurrentUserSelect from './CurrentUserSelect.tsx'
 
 const menu = [
   { to: '/incidents', label: 'Инциденты' },
@@ -33,9 +34,12 @@ export default function Layout() {
 
       <div className="main">
         <header className="header">
-          {/* Пока страницы работают на тестовых данных из src/mocks — честно показываем это */}
+          {/* Данные приходят с бэкенда, но в базе пока тестовый каталог — честно показываем это */}
           <Tag color="gold">Тестовые данные</Tag>
           <BackendStatus />
+          <span className="header__user">
+            Вы: <CurrentUserSelect />
+          </span>
         </header>
         <main className="content">
           <Outlet />

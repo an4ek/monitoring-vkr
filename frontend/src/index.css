@@ -91,7 +91,8 @@ a {
 
 .header {
   display: flex;
-  justify-content: space-between;
+  justify-content: flex-start;
+  gap: 16px;
   align-items: center;
   height: 56px;
   padding: 0 24px;
@@ -130,4 +131,12 @@ a {
 
 .backend-status--error .backend-status__dot {
   background: var(--error);
+}
+
+/* Выбор сотрудника в шапке прижат к правому краю */
+.header__user {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }

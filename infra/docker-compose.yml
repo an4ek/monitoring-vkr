@@ -1,4 +1,4 @@
-# Инфраструктура системы для разработки: база данных, брокер, кэш, почта.
+# Инфраструктура системы для разработки: база данных, брокер сообщений, почта.
 # Запуск: cd infra && docker compose up -d
 # Остановка: docker compose down   (данные сохраняются)
 # Полный сброс данных: docker compose down -v
@@ -42,15 +42,6 @@ services:
       timeout: 5s
       retries: 10
 
-  redis:
-    image: redis:7-alpine
-    container_name: vkr-redis
-    restart: unless-stopped
-    ports:
-      - "6379:6379"
-    volumes:
-      - redisdata:/data
-
   mailpit:
     image: axllent/mailpit
     container_name: vkr-mailpit
@@ -62,4 +53,3 @@ services:
 volumes:
   pgdata:
   rabbitdata:
-  redisdata:
