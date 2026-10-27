@@ -164,7 +164,11 @@ class SubscriptionViewSet(mixins.ListModelMixin, mixins.CreateModelMixin,
 
 def _assign_owner(request, model, serializer_class, pk):
     obj = get_object_or_404(model, pk=pk)
-    person = Person.objects.filter(id=request.data.get('person_id')).first()
+    # person_id может прийти не числом (строка, null) — тогда сотрудник не выбран
+    try:
+        person = Person.objects.filter(id=int(request.data.get('person_id'))).first()
+    except (TypeError, ValueError):
+        person = None
     if person is None:
         return Response({'detail': 'Выберите сотрудника'}, status=status.HTTP_400_BAD_REQUEST)
     obj.owner = person

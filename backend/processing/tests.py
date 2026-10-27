@@ -135,3 +135,7 @@ class AccessTests(TestCase):
         self.assertEqual(response.json()['owner_id'], 2)
         response = self.client.post('/api/services/1/owner/', {'person_id': 999}, content_type='application/json')
         self.assertEqual(response.status_code, 400)
+        for bad in ('abc', None, [2]):
+            response = self.client.post('/api/services/1/owner/', {'person_id': bad}, content_type='application/json')
+            self.assertEqual(response.status_code, 400)
+            self.assertEqual(response.json()['detail'], 'Выберите сотрудника')
