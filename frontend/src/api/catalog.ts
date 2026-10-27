@@ -12,10 +12,16 @@
 
 
 // Запросы данных каталога — теперь с реального бэкенда.
-import { apiGet } from './client.ts'
+import { apiGet, apiPost } from './client.ts'
 import type { Department, Person, Resource, Service } from '../types.ts'
 
 export const fetchServices = () => apiGet<Service[]>('/services/')
 export const fetchResources = () => apiGet<Resource[]>('/resources/')
 export const fetchPeople = () => apiGet<Person[]>('/people/')
 export const fetchDepartments = () => apiGet<Department[]>('/departments/')
+
+// Назначение ответственного (только руководитель)
+export const setResourceOwner = (id: number, personId: number) =>
+  apiPost<Resource>(`/resources/${id}/owner/`, { person_id: personId })
+export const setServiceOwner = (id: number, personId: number) =>
+  apiPost<Service>(`/services/${id}/owner/`, { person_id: personId })

@@ -32,6 +32,7 @@ export async function apiSend<T>(method: 'POST' | 'DELETE', path: string, body?:
 }
 
 export const apiPost = <T>(path: string, body?: unknown) => apiSend<T>('POST', path, body)
+export const apiDelete = (path: string) => apiSend<void>('DELETE', path)
 
 // Проверка, что бэкенд жив: Django отвечает на /api/health/.
 export type Health = { status: string }

@@ -20,7 +20,7 @@ npm run dev
 
 ## Связь с бэкендом
 
-Все запросы на `/api/...` Vite пересылает в Django на `http://localhost:8000` (настройка в `vite.config.ts`). Поэтому в коде пишем просто `fetch('/api/...')`, а CORS настраивать не нужно.
+Все запросы на `/api/...` (а также `/admin/` и `/static/` — админка) Vite пересылает в Django на `http://localhost:8000` (настройка в `vite.config.ts`). Поэтому в коде пишем просто `fetch('/api/...')`, а CORS настраивать не нужно.
 
 В шапке есть индикатор: раз в 10 секунд он запрашивает `GET /api/health/`. Если Django не запущен, горит «Бэкенд не отвечает», а в терминале появляются строки `http proxy error … ECONNREFUSED`. Это нормально.
 
@@ -33,6 +33,7 @@ npm run dev
 | `src/components/Layout.tsx` | Каркас: меню слева, шапка, место под страницу |
 | `src/components/BackendStatus.tsx` | Индикатор бэкенда в шапке |
 | `src/components/RequireAuth.tsx`, `src/pages/LoginPage.tsx` | Вход в систему: без входа страницы не открываются |
+| `src/components/OwnerCell.tsx` | Ответственный за ресурс или сервис; руководителю видна кнопка «Назначить» |
 | `src/api/client.ts` | Функции для запросов к бэкенду |
 | `src/pages/` | Страницы: Инциденты, Сервисы, Каталог, Подписки |
 | `src/index.css` | Стили, цвета вынесены в начало файла |

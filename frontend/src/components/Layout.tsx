@@ -4,12 +4,14 @@ import { Button, Tag } from 'antd'
 import BackendStatus from './BackendStatus.tsx'
 import { logout } from '../api/auth.ts'
 import { useAuth } from '../hooks/useAuth.ts'
+import type { Role } from '../types.ts'
 
-const menu = [
-  { to: '/incidents', label: 'Инциденты' },
-  { to: '/services', label: 'Сервисы' },
-  { to: '/catalog', label: 'Каталог' },
-  { to: '/subscriptions', label: 'Подписки' },
+// Пункты меню и кому они видны (по диаграмме вариантов использования)
+const menu: { to: string; label: string; roles: Role[] }[] = [
+  { to: '/incidents', label: 'Инциденты', roles: ['admin', 'engineer', 'manager'] },
+  { to: '/services', label: 'Сервисы', roles: ['admin', 'engineer', 'manager'] },
+  { to: '/catalog', label: 'Каталог', roles: ['admin', 'engineer', 'manager'] },
+  { to: '/subscriptions', label: 'Подписки', roles: ['engineer', 'manager'] },
 ]
 
 // Общий каркас всех страниц: меню слева, шапка сверху,
@@ -30,7 +32,7 @@ export default function Layout() {
       <aside className="sidebar">
         <div className="sidebar__logo">Мониторинг</div>
         <nav className="sidebar__nav">
-          {menu.map((item) => (
+          {menu.filter((item) => me && item.roles.includes(me.role)).map((item) => (
             <NavLink
               key={item.to}
               to={item.to}
@@ -41,6 +43,12 @@ export default function Layout() {
               {item.label}
             </NavLink>
           ))}
+          {/* Администратор управляет пользователями, ролями и каталогом в админке Django */}
+          {me?.role === 'admin' && (
+            <a className="sidebar__link" href="/admin/" target="_blank" rel="noreferrer">
+              Администрирование ↗
+            </a>
+          )}
         </nav>
       </aside>
 

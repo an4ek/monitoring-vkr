@@ -5,6 +5,8 @@
   POST /api/incidents/<id>/take/    — взять инцидент в работу (только инженер)
   POST /api/incidents/<id>/close/   — закрыть инцидент (только инженер)
   /api/subscriptions/               — свои подписки на сервисы (инженер, руководитель)
+  POST /api/resources/<id>/owner/   — назначить ответственного за ресурс (только руководитель)
+  POST /api/services/<id>/owner/    — назначить ответственного за сервис (только руководитель)
 """
 import hmac
 
@@ -19,8 +21,8 @@ from rest_framework.response import Response
 
 from accounts.permissions import HasRole
 
-from api.models import Incident, IncidentHistoryItem, Service
-from api.serializers import IncidentSerializer
+from api.models import Incident, IncidentHistoryItem, Person, Resource, Service
+from api.serializers import IncidentSerializer, ResourceSerializer, ServiceSerializer
 
 from .models import Subscription
 from .normalize import InvalidEvent, from_alertmanager, from_zabbix
@@ -154,3 +156,29 @@ class SubscriptionViewSet(mixins.ListModelMixin, mixins.CreateModelMixin,
         if Subscription.objects.filter(person=person, service=serializer.validated_data['service']).exists():
             raise exceptions.ValidationError({'service_id': 'Вы уже подписаны на этот сервис'})
         serializer.save(person=person)
+
+
+# --- Назначение ответственных ------------------------------------------------
+# По диаграмме вариантов использования ответственных назначает только руководитель.
+# Ответственный обязателен, поэтому снять его нельзя — только заменить.
+
+def _assign_owner(request, model, serializer_class, pk):
+    obj = get_object_or_404(model, pk=pk)
+    person = Person.objects.filter(id=request.data.get('person_id')).first()
+    if person is None:
+        return Response({'detail': 'Выберите сотрудника'}, status=status.HTTP_400_BAD_REQUEST)
+    obj.owner = person
+    obj.save(update_fields=['owner'])
+    return Response(serializer_class(obj).data)
+
+
+@api_view(['POST'])
+@permission_classes([HasRole.of('manager')])
+def assign_resource_owner(request, pk):
+    return _assign_owner(request, Resource, ResourceSerializer, pk)
+
+
+@api_view(['POST'])
+@permission_classes([HasRole.of('manager')])
+def assign_service_owner(request, pk):
+    return _assign_owner(request, Service, ServiceSerializer, pk)

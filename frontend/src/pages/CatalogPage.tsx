@@ -2,6 +2,8 @@ import { useState } from 'react'
 import { Input, Space, Table, Tag } from 'antd'
 import type { TableProps } from 'antd'
 import { useCatalog } from '../hooks/useCatalog.ts'
+import { setResourceOwner } from '../api/catalog.ts'
+import OwnerCell from '../components/OwnerCell.tsx'
 import { environmentLabels, resourceTypeLabels } from '../utils/labels.ts'
 import type { Environment, Resource, ResourceType } from '../types.ts'
 
@@ -67,7 +69,9 @@ export default function CatalogPage() {
     {
       title: 'Ответственный',
       dataIndex: 'owner_id',
-      render: (id: number) => catalog.peopleById.get(id)?.full_name,
+      render: (id: number, resource) => (
+        <OwnerCell ownerId={id} invalidate="resources" onAssign={(personId) => setResourceOwner(resource.id, personId)} />
+      ),
     },
   ]
 

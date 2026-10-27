@@ -125,3 +125,13 @@ class AccessTests(TestCase):
         self.assertEqual(created.json()['person_id'], 4)  # подписаться можно только самому
         self.login('admin')
         self.assertEqual(self.client.get('/api/subscriptions/').status_code, 403)
+
+    def test_only_manager_assigns_owners(self):
+        for username in ('ivanov', 'admin'):
+            self.login(username)
+            self.assertEqual(self.client.post('/api/resources/3/owner/', {'person_id': 2}, content_type='application/json').status_code, 403)
+        self.login('orlova')
+        response = self.client.post('/api/resources/3/owner/', {'person_id': 2}, content_type='application/json')
+        self.assertEqual(response.json()['owner_id'], 2)
+        response = self.client.post('/api/services/1/owner/', {'person_id': 999}, content_type='application/json')
+        self.assertEqual(response.status_code, 400)

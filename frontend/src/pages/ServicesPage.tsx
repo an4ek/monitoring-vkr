@@ -5,6 +5,8 @@ import { fetchIncidents } from '../api/incidents.ts'
 import { useCatalog } from '../hooks/useCatalog.ts'
 import { ServiceStatusTag } from '../components/StatusTags.tsx'
 import { formatPercent } from '../utils/format.ts'
+import { setServiceOwner } from '../api/catalog.ts'
+import OwnerCell from '../components/OwnerCell.tsx'
 
 // Сервисы: состояние каждого, доступность против цели (SLO) и открытые инциденты
 export default function ServicesPage() {
@@ -44,7 +46,16 @@ export default function ServicesPage() {
                         </span>
                       ),
                     },
-                    { label: 'Ответственный', children: catalog.peopleById.get(service.owner_id)?.full_name },
+                    {
+                      label: 'Ответственный',
+                      children: (
+                        <OwnerCell
+                          ownerId={service.owner_id}
+                          invalidate="services"
+                          onAssign={(personId) => setServiceOwner(service.id, personId)}
+                        />
+                      ),
+                    },
                     { label: 'Подразделение', children: catalog.departmentsById.get(service.department_id)?.name },
                     { label: 'Ресурсов', children: resourceCount },
                     {
