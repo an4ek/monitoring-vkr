@@ -1,12 +1,4 @@
 """API, которое добавляет обработка событий.
-
-  POST /api/events/zabbix/          — прием события от Zabbix
-  POST /api/events/alertmanager/    — прием события от Prometheus (Alertmanager)
-  POST /api/incidents/<id>/take/    — взять инцидент в работу (только инженер)
-  POST /api/incidents/<id>/close/   — закрыть инцидент (только инженер)
-  /api/subscriptions/               — свои подписки на сервисы (инженер, руководитель)
-  POST /api/resources/<id>/owner/   — назначить ответственного за ресурс (только руководитель)
-  POST /api/services/<id>/owner/    — назначить ответственного за сервис (только руководитель)
 """
 import hmac
 
@@ -20,8 +12,7 @@ from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 
 from accounts.permissions import HasRole
-
-from api.models import Incident, IncidentHistoryItem, Person, Resource, Service
+from api.models import Incident, IncidentTimeline, Employee, ConfigurationItem, BusinessService
 from api.serializers import IncidentSerializer, ResourceSerializer, ServiceSerializer
 
 from .models import Subscription
@@ -30,11 +21,6 @@ from .tasks import process_event
 
 
 def _accept(request, normalizer):
-    """Прием события: привести к единому виду, поставить задачу в очередь, сразу ответить.
-
-    Сама обработка идет в обработчике (Celery), поэтому мониторинг не ждет.
-    """
-    # Сравнение за постоянное время, чтобы ключ нельзя было подобрать по времени ответа
     token = request.headers.get('X-Webhook-Token', '')
     if not hmac.compare_digest(token.encode(), settings.WEBHOOK_TOKEN.encode()):
         return Response({'detail': 'Неверный ключ'}, status=status.HTTP_403_FORBIDDEN)
@@ -47,7 +33,6 @@ def _accept(request, normalizer):
     return Response({'status': 'Принято', 'events': len(events)}, status=status.HTTP_202_ACCEPTED)
 
 
-# Мониторинг входит не по логину, а по секретному ключу (проверка в _accept)
 @api_view(['POST'])
 @authentication_classes([])
 @permission_classes([AllowAny])
@@ -63,14 +48,13 @@ def alertmanager_webhook(request):
 
 
 # --- Разбор инцидента --------------------------------------------------------
-# Брать в работу и закрывать может только инженер. Действие записывается
-# от имени сотрудника, привязанного к его учетной записи.
 
 class NoPerson(Exception):
     pass
 
 
 def _person(request):
+    # В Profile поле называется person, но ссылается на Employee
     person = request.user.profile.person
     if person is None:
         raise NoPerson
@@ -84,8 +68,9 @@ def _no_person():
     )
 
 
-def _history(incident, text):
-    IncidentHistoryItem.objects.create(incident=incident, at=timezone.now(), text=text)
+def _history(incident, text, actor=None):
+    # Пишем в IncidentTimeline вместо IncidentHistoryItem
+    IncidentTimeline.objects.create(incident=incident, entry_type='system', text=text, actor=actor)
 
 
 @api_view(['POST'])
@@ -102,7 +87,7 @@ def take_incident(request, pk):
         incident.status = Incident.Status.IN_PROGRESS
         incident.assignee = person
         incident.save(update_fields=['status', 'assignee'])
-        _history(incident, f'Взят в работу: {person.full_name}')
+        _history(incident, f'Взят в работу: {person.full_name}', request.user)
     return Response(IncidentSerializer(incident).data)
 
 
@@ -124,16 +109,16 @@ def close_incident(request, pk):
         if incident.assignee is None:
             incident.assignee = person
         incident.save(update_fields=['status', 'resolved_at', 'closed_by', 'assignee'])
-        _history(incident, f'Закрыт вручную: {person.full_name}' + (f'. {comment}' if comment else ''))
+        _history(incident, f'Закрыт вручную: {person.full_name}' + (f'. {comment}' if comment else ''), request.user)
     return Response(IncidentSerializer(incident).data)
 
 
 # --- Подписки ----------------------------------------------------------------
-# Инженер и руководитель видят и меняют только свои подписки.
 
 class SubscriptionSerializer(serializers.ModelSerializer):
     person_id = serializers.PrimaryKeyRelatedField(source='person', read_only=True)
-    service_id = serializers.PrimaryKeyRelatedField(source='service', queryset=Service.objects.all())
+    # Меняем Service на BusinessService
+    service_id = serializers.PrimaryKeyRelatedField(source='service', queryset=BusinessService.objects.all())
 
     class Meta:
         model = Subscription
@@ -159,14 +144,11 @@ class SubscriptionViewSet(mixins.ListModelMixin, mixins.CreateModelMixin,
 
 
 # --- Назначение ответственных ------------------------------------------------
-# По диаграмме вариантов использования ответственных назначает только руководитель.
-# Ответственный обязателен, поэтому снять его нельзя — только заменить.
 
 def _assign_owner(request, model, serializer_class, pk):
     obj = get_object_or_404(model, pk=pk)
-    # person_id может прийти не числом (строка, null) — тогда сотрудник не выбран
     try:
-        person = Person.objects.filter(id=int(request.data.get('person_id'))).first()
+        person = Employee.objects.filter(id=int(request.data.get('person_id'))).first()
     except (TypeError, ValueError):
         person = None
     if person is None:
@@ -179,10 +161,10 @@ def _assign_owner(request, model, serializer_class, pk):
 @api_view(['POST'])
 @permission_classes([HasRole.of('manager')])
 def assign_resource_owner(request, pk):
-    return _assign_owner(request, Resource, ResourceSerializer, pk)
+    return _assign_owner(request, ConfigurationItem, ResourceSerializer, pk)
 
 
 @api_view(['POST'])
 @permission_classes([HasRole.of('manager')])
 def assign_service_owner(request, pk):
-    return _assign_owner(request, Service, ServiceSerializer, pk)
+    return _assign_owner(request, BusinessService, ServiceSerializer, pk)

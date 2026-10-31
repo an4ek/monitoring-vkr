@@ -10,7 +10,7 @@ from celery import shared_task
 from django.conf import settings
 from django.utils import timezone
 
-from api.models import Incident, IncidentHistoryItem
+from api.models import Incident, IncidentTimeline
 
 from . import logic, notify
 from .models import IncomingEvent, Notification
@@ -32,7 +32,7 @@ def process_event(data):
 def _history(incident, text):
     if incident is None:  # оповещение администратору не привязано к инциденту
         return
-    IncidentHistoryItem.objects.create(incident=incident, at=timezone.now(), text=text)
+    IncidentTimeline.objects.create(incident=incident, entry_type='system', text=text)
 
 
 def _try_send(notification):

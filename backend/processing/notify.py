@@ -12,15 +12,16 @@ import urllib.request
 from django.conf import settings
 from django.core.mail import send_mail
 
-from api.models import Incident, Person
+from api.models import Incident, Employee
 
 from .models import Notification, Subscription
 
 
-def collect_recipients(incident: Incident) -> dict[Person, str]:
+def collect_recipients(incident: Incident) -> dict[Employee, str]:
     """Возвращает {сотрудник: 'fix' или 'info'} без повторов."""
-    recipients: dict[Person, str] = {}
-    services = list(incident.affected_services.select_related('owner'))
+    recipients: dict[Employee, str] = {}
+    # В новой схеме связь идет через incident_services
+    services = [isvc.service for isvc in incident.incident_services.select_related('service__owner')]
 
     for service in services:
         recipients[service.owner] = Notification.Kind.INFO
@@ -28,11 +29,12 @@ def collect_recipients(incident: Incident) -> dict[Person, str]:
     for subscription in subscriptions:
         recipients[subscription.person] = Notification.Kind.INFO
     # Ответственный за первопричину получает «устранить», даже если он есть и в других списках
-    recipients[incident.root_cause.owner] = Notification.Kind.FIX
+    if incident.root_cause_ci and incident.root_cause_ci.owner:
+        recipients[incident.root_cause_ci.owner] = Notification.Kind.FIX
     return recipients
 
 
-def channels_for(person: Person) -> list[tuple[str, str]]:
+def channels_for(person: Employee) -> list[tuple[str, str]]:
     """Куда отправлять: почта всегда, Mattermost — если он подключен."""
     result = [(Notification.Channel.EMAIL, person.email)]
     if settings.MATTERMOST_WEBHOOK_URL and person.mattermost:
@@ -42,19 +44,30 @@ def channels_for(person: Person) -> list[tuple[str, str]]:
 
 def compose(incident: Incident, kind: str) -> tuple[str, str]:
     """Тема и текст оповещения."""
-    root = incident.root_cause
-    services = ', '.join(incident.affected_services.values_list('name', flat=True)) or 'нет'
+    root = incident.root_cause_ci
+    if not root:
+        root_name = '—'
+        root_desc = '—'
+        owner_name = '—'
+        runbook = ''
+    else:
+        root_name = root.name
+        root_desc = root.attributes.get('description', '') if root.attributes else ''
+        owner_name = root.owner.full_name if root.owner else '—'
+        runbook = root.runbook_url
+
+    services = ', '.join(isvc.service.name for isvc in incident.incident_services.select_related('service')) or 'нет'
     action = 'Устранить' if kind == Notification.Kind.FIX else 'К сведению'
     subject = f'[{action}] Инцидент №{incident.id}: {incident.title}'
     lines = [
         f'{action}.',
         f'Инцидент №{incident.id}: {incident.title}',
-        f'Первопричина: {root.name} — {root.description}',
+        f'Первопричина: {root_name} — {root_desc}',
         f'Затронутые сервисы: {services}',
-        f'Ответственный за первопричину: {root.owner.full_name}',
+        f'Ответственный за первопричину: {owner_name}',
     ]
-    if kind == Notification.Kind.FIX and root.runbook_url:
-        lines.append(f'Инструкция: {root.runbook_url}')
+    if kind == Notification.Kind.FIX and runbook:
+        lines.append(f'Инструкция: {runbook}')
     lines.append(f'Карточка инцидента: {settings.FRONTEND_URL}/incidents/{incident.id}')
     return subject, '\n'.join(lines)
 
