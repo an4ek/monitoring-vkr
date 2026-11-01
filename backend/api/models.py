@@ -124,6 +124,7 @@ class CIRelationship(models.Model):
 
 class BusinessService(models.Model):
     name = models.CharField(max_length=200)
+    description = models.CharField(max_length=300, blank=True)
     service_type = models.CharField(max_length=20)
     department = models.ForeignKey(Department, on_delete=models.PROTECT)
     owner = models.ForeignKey(Employee, on_delete=models.PROTECT, related_name='owned_services')

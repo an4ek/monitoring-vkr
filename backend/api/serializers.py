@@ -100,10 +100,11 @@ class IncidentSerializer(serializers.ModelSerializer):
 class MonitoringEventSerializer(serializers.ModelSerializer):
     incident_id = serializers.IntegerField(source='incident.id', read_only=True)
     resource_id = serializers.IntegerField(source='ci.id', read_only=True)
+    source = serializers.CharField(source='monitoring_system.system_type', read_only=True)
 
     class Meta:
         model = Event
         fields = [
-            'id', 'incident_id', 'source', 'resource_id',
-            'title', 'severity', 'received_at',
+            'id', 'name', 'description', 'department_id', 'owner_id',
+            'status', 'slo_target', 'availability',
         ]

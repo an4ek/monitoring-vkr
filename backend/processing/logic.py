@@ -17,6 +17,12 @@ SEVERITY_RANK = {'info': 0, 'warning': 1, 'critical': 2}
 
 OPEN_STATUSES = [Incident.Status.OPEN, Incident.Status.IN_PROGRESS]
 
+STATUS_BY_RESULT = {
+    'attached': IncomingEvent.Status.ATTACHED,
+    'recovery': IncomingEvent.Status.RECOVERED,
+    'unknown_resource': IncomingEvent.Status.UNKNOWN_RESOURCE,
+}
+
 
 # --- Граф зависимостей ---------------------------------------------------------
 
@@ -105,6 +111,13 @@ def update_service_statuses(service_ids):
 
 # --- Инцидент ----------------------------------------------------------------
 
+def _monitoring_system(source):
+    system, _ = MonitoringSystem.objects.get_or_create(
+        name=source.capitalize(),
+        defaults={'system_type': source, 'ingest_method': 'webhook'},
+    )
+    return system
+
 def _history(incident, text):
     IncidentTimeline.objects.create(incident=incident, entry_type='system', text=text)
 
@@ -172,15 +185,24 @@ def _find_open_incident(resource_id):
 
 
 def _handle_problem(incoming, resource):
-    now = timezone.now()
+    mon_sys = _monitoring_system(incoming.source)
+    fingerprint = incoming.external_id[:64]
+
+    # Защита от повторной обработки: это событие уже записано
+    existing = Event.objects.filter(
+        monitoring_system=mon_sys, fingerprint=fingerprint, status='firing',
+    ).select_related('incident').first()
+    if existing and existing.incident:
+        return existing.incident
+
+    at = incoming.received_at  # время приема, а не время обработки
     state, _ = ResourceState.objects.get_or_create(resource=resource)
     if not state.is_failing:
         state.is_failing = True
-        state.since = now
+        state.since = at
     state.severity = incoming.severity
     state.save()
 
-    source = incoming.source
     incident = _find_open_incident(resource.id)
     if incident is None:
         incident = Incident.objects.create(
@@ -188,89 +210,79 @@ def _handle_problem(incoming, resource):
             severity=incoming.severity,
             root_cause_ci=resource,
             responsible=resource.owner,
-            started_at=now,
+            started_at=at,
         )
-        _history(incident, f'Инцидент создан по событию от {source}: {resource.name} — {incoming.title}')
+        _history(incident, f'Инцидент создан по событию от {incoming.get_source_display()}: '
+                           f'{resource.name} — {incoming.title}')
     else:
-        _history(incident, f'Добавлено событие от {source}: {resource.name} — {incoming.title}')
+        _history(incident, f'Добавлено событие от {incoming.get_source_display()}: '
+                           f'{resource.name} — {incoming.title}')
 
-    mon_sys = MonitoringSystem.objects.first()
-    if not mon_sys:
-        mon_sys = MonitoringSystem.objects.create(name='Default', system_type='generic', ingest_method='webhook')
-
-    incoming.monitoring_event = Event.objects.create(
-        incident=incident, ci=resource,
-        title=incoming.title, severity=incoming.severity, 
-        received_at=now, event_time=now, last_seen_at=now,
-        fingerprint=incoming.external_id, status='firing',
-        monitoring_system=mon_sys
+    Event.objects.create(
+        incident=incident, ci=resource, monitoring_system=mon_sys,
+        title=incoming.title, severity=incoming.severity, status='firing',
+        fingerprint=fingerprint, event_time=at, last_seen_at=at,
+        raw_payload=incoming.payload,
     )
-    incoming.status = IncomingEvent.Status.ATTACHED
-    incoming.save()
-
     refresh_incident(incident)
     return incident
 
 
 def _handle_recovery(incoming, resource):
+    from api.models import ServiceCI
+    mon_sys = _monitoring_system(incoming.source)
+    fingerprint = f'rec-{incoming.external_id}'[:64]
+    at = incoming.received_at
+
     ResourceState.objects.update_or_create(
         resource=resource, defaults={'is_failing': False, 'since': None},
     )
-    from api.models import ServiceCI
     update_service_statuses(ServiceCI.objects.filter(ci=resource).values_list('service_id', flat=True))
-    incoming.status = IncomingEvent.Status.RECOVERED
 
     failing = set(ResourceState.objects.filter(is_failing=True).values_list('resource_id', flat=True))
     incidents = Incident.objects.filter(status__in=OPEN_STATUSES, events__ci=resource).distinct()
     for incident in incidents:
-        mon_sys = MonitoringSystem.objects.first()
-        if not mon_sys:
-            mon_sys = MonitoringSystem.objects.create(name='Default', system_type='generic', ingest_method='webhook')
-
-        event = Event.objects.create(
-            incident=incident, ci=resource,
-            title=f'Восстановлено: {incoming.title}', severity='info',
-            received_at=timezone.now(), event_time=timezone.now(), last_seen_at=timezone.now(),
-            fingerprint=f"rec-{incoming.external_id}", status='resolved',
-            monitoring_system=mon_sys
+        if Event.objects.filter(incident=incident, monitoring_system=mon_sys, fingerprint=fingerprint).exists():
+            continue  # уже обработано раньше
+        Event.objects.create(
+            incident=incident, ci=resource, monitoring_system=mon_sys,
+            title=f'Восстановлено: {incoming.title}', severity='info', status='resolved',
+            fingerprint=fingerprint, event_time=at, last_seen_at=at, resolved_at=at,
+            raw_payload=incoming.payload,
         )
-        incoming.monitoring_event = incoming.monitoring_event or event
         _history(incident, f'Ресурс {resource.name} восстановился')
 
         resource_ids = set(incident.events.values_list('ci_id', flat=True))
         if not (resource_ids & failing):
             incident.status = Incident.Status.RESOLVED
-            incident.resolved_at = timezone.now()
+            incident.resolved_at = at
             incident.save(update_fields=['status', 'resolved_at'])
             _history(incident, 'Инцидент закрыт автоматически: все ресурсы восстановились')
-    incoming.save()
 
 
-def process(data):
-    with transaction.atomic():
+def process(incoming):
+    """Обрабатывает событие из raw. Возвращает (результат, id инцидента, нужна ли рассылка)."""
+    incident_id, notify_needed = None, False
+
+    with transaction.atomic():  # основная база: все или ничего
         with connection.cursor() as cursor:
             cursor.execute('SELECT pg_advisory_xact_lock(%s)', [GROUPING_LOCK_ID])
 
-        try:
-            with transaction.atomic():
-                incoming = IncomingEvent.objects.create(
-                    source=data['source'], external_id=data['external_id'], kind=data['kind'],
-                    resource_name=data['resource_name'], title=data['title'],
-                    severity=data['severity'], payload=data,
-                )
-        except IntegrityError:
-            return 'duplicate', None, False
-
-        resource = ConfigurationItem.objects.filter(name=data['resource_name']).first()
+        resource = ConfigurationItem.objects.filter(name=incoming.resource_name).first()
         if resource is None:
-            incoming.status = IncomingEvent.Status.UNKNOWN_RESOURCE
-            incoming.save(update_fields=['status'])
-            return 'unknown_resource', None, False
-        incoming.resource = resource
-
-        if incoming.kind == IncomingEvent.Kind.RECOVERY:
+            result = 'unknown_resource'
+        elif incoming.kind == IncomingEvent.Kind.RECOVERY:
             _handle_recovery(incoming, resource)
-            return 'recovery', None, False
+            result = 'recovery'
+        else:
+            incident = _handle_problem(incoming, resource)
+            incident_id = incident.id
+            notify_needed = needs_notification(incident)
+            result = 'attached'
 
-        incident = _handle_problem(incoming, resource)
-        return 'attached', incident.id, needs_notification(incident)
+    # Основная база зафиксирована, теперь отмечаем событие в raw
+    incoming.status = STATUS_BY_RESULT[result]
+    incoming.processed_at = timezone.now()
+    incoming.error = ''
+    incoming.save(update_fields=['status', 'processed_at', 'error'])
+    return result, incident_id, notify_needed

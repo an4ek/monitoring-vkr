@@ -99,11 +99,11 @@ DATABASES = {
     },
     'raw': {
         'ENGINE': 'django.db.backends.postgresql',
-        'NAME': 'monitoring_raw',
+        'NAME': os.environ.get('POSTGRES_RAW_DB', 'monitoring_raw'),
         'USER': 'monitoring',
         'PASSWORD': 'monitoring',
         'HOST': os.environ.get('POSTGRES_HOST', 'localhost'),
-        'PORT': '5433',  # порт сырой базы
+        'PORT': os.environ.get('POSTGRES_RAW_PORT', '5433'),
     }
 }
 

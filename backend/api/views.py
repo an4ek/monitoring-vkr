@@ -58,13 +58,13 @@ class IncidentViewSet(viewsets.ReadOnlyModelViewSet):
     def events(self, request, pk=None):
         incident = self.get_object()
         # Связь теперь называется events (Event), а ресурс - ci
-        events = incident.events.select_related('ci').all()
+        events = incident.events.select_related('ci', 'monitoring_system').all()
         serializer = MonitoringEventSerializer(events, many=True)
         return Response(serializer.data)
 
 
 class MonitoringEventViewSet(viewsets.ReadOnlyModelViewSet):
     # Меняем MonitoringEvent на Event
-    queryset = Event.objects.select_related('incident', 'ci').all()
+    queryset = Event.objects.select_related('incident', 'ci', 'monitoring_system').all()
     serializer_class = MonitoringEventSerializer
     filter_backends = []

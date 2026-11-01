@@ -7,7 +7,7 @@ from django.db import transaction
 from api.models import (
     Department, Employee, CIClass, CIRelationshipType, ConfigurationItem,
     CIRelationship, BusinessService, ServiceCI, Incident, IncidentTimeline, IncidentService,
-    MonitoringSystem
+    MonitoringSystem, Subscription
 )
 
 class Command(BaseCommand):
@@ -94,10 +94,10 @@ class Command(BaseCommand):
         CIRelationship.objects.create(source_ci=ci['srv-1c'], target_ci=ci['sw-core-01'], relationship_type=rel_depends)
 
         self.stdout.write('Создание бизнес-сервисов...')
-        s_site = BusinessService.objects.create(name='Корпоративный сайт', service_type='web', department=dep_sales, owner=emp_smirnov, current_status='ok')
-        s_crm = BusinessService.objects.create(name='CRM', service_type='web', department=dep_sales, owner=emp_orlova, current_status='ok')
-        s_1c = BusinessService.objects.create(name='1С: Бухгалтерия', service_type='erp', department=dep_infra, owner=emp_ivanov, current_status='ok')
-        s_mail = BusinessService.objects.create(name='Корпоративная почта', service_type='comm', department=dep_infra, owner=emp_petrova, current_status='ok')
+        s_site = BusinessService.objects.create(name='Корпоративный сайт', description='Сайт компании и форма заявок', service_type='web', department=dep_sales, owner=emp_smirnov, current_status='ok')
+        s_crm = BusinessService.objects.create(name='CRM', description='Учёт клиентов и сделок', service_type='web', department=dep_sales, owner=emp_orlova, current_status='ok')
+        s_1c = BusinessService.objects.create(name='1С: Бухгалтерия', description='Система бухгалтерского учета', service_type='erp', department=dep_infra, owner=emp_ivanov, current_status='ok')
+        s_mail = BusinessService.objects.create(name='Корпоративная почта', description='Корпоративный email-сервис', service_type='comm', department=dep_infra, owner=emp_petrova, current_status='ok')
 
         self.stdout.write('Привязка ресурсов к сервисам...')
         # Сайт
@@ -112,6 +112,10 @@ class Command(BaseCommand):
         ServiceCI.objects.create(service=s_1c, ci=ci['db-1c'])
         # Почта
         ServiceCI.objects.create(service=s_mail, ci=ci['mail-01'])
+
+        self.stdout.write('Создание подписок...')
+        Subscription.objects.create(person=emp_petrova, service=s_site)
+        Subscription.objects.create(person=emp_orlova, service=s_1c)
 
         self.stdout.write('Создание тестового инцидента...')
         inc = Incident.objects.create(

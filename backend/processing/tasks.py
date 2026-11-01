@@ -17,13 +17,24 @@ from .models import IncomingEvent
 from api.models import Notification
 
 
-@shared_task
-def process_event(data):
-    result, incident_id, notify_needed = logic.process(data)
+@shared_task(bind=True, max_retries=5)
+def process_event(self, incoming_id):
+    incoming = IncomingEvent.objects.filter(id=incoming_id).first()
+    if incoming is None or incoming.status != IncomingEvent.Status.NEW:
+        return 'skipped'  # уже обработано или такого нет
+
+    try:
+        result, incident_id, notify_needed = logic.process(incoming)
+    except Exception as error:  # noqa: BLE001
+        incoming.error = str(error)[:1000]
+        if self.request.retries >= self.max_retries:
+            incoming.status = IncomingEvent.Status.FAILED
+            incoming.save(update_fields=['status', 'error'])
+            raise
+        incoming.save(update_fields=['error'])
+        raise self.retry(exc=error, countdown=10 * 2 ** self.request.retries)
+
     if result == 'unknown_resource':
-        incoming = IncomingEvent.objects.get(
-            source=data['source'], external_id=data['external_id'], kind=data['kind'],
-        )
         notify_admin.delay(incoming.id)
     if notify_needed:
         send_notifications.delay(incident_id)
