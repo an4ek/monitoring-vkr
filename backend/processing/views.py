@@ -15,7 +15,7 @@ from accounts.permissions import HasRole
 from api.models import Incident, IncidentTimeline, Employee, ConfigurationItem, BusinessService
 from api.serializers import IncidentSerializer, ResourceSerializer, ServiceSerializer
 
-from .models import Subscription
+from api.models import Subscription
 from .normalize import InvalidEvent, from_alertmanager, from_zabbix
 from .tasks import process_event
 

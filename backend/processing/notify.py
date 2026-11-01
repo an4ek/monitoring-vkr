@@ -12,9 +12,9 @@ import urllib.request
 from django.conf import settings
 from django.core.mail import send_mail
 
-from api.models import Incident, Employee
+from api.models import Incident, Employee, Notification, Subscription
 
-from .models import Notification, Subscription
+
 
 
 def collect_recipients(incident: Incident) -> dict[Employee, str]:

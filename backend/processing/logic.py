@@ -2,13 +2,15 @@
 from collections import deque
 from datetime import timedelta
 
+from api.models import MonitoringSystem
 from django.conf import settings
 from django.db import IntegrityError, connection, transaction
 from django.utils import timezone
 
 from api.models import Incident, IncidentTimeline, Event, ConfigurationItem, BusinessService
 
-from .models import IncidentNotifyState, IncomingEvent, ResourceState
+from .models import IncomingEvent
+from api.models import IncidentNotifyState, ResourceState, Notification, Subscription
 
 GROUPING_LOCK_ID = 7_310_001
 SEVERITY_RANK = {'info': 0, 'warning': 1, 'critical': 2}
@@ -192,12 +194,16 @@ def _handle_problem(incoming, resource):
     else:
         _history(incident, f'Добавлено событие от {source}: {resource.name} — {incoming.title}')
 
+    mon_sys = MonitoringSystem.objects.first()
+    if not mon_sys:
+        mon_sys = MonitoringSystem.objects.create(name='Default', system_type='generic', ingest_method='webhook')
+
     incoming.monitoring_event = Event.objects.create(
         incident=incident, ci=resource,
         title=incoming.title, severity=incoming.severity, 
         received_at=now, event_time=now, last_seen_at=now,
         fingerprint=incoming.external_id, status='firing',
-        monitoring_system_id=1 # TODO: брать реальный ID системы
+        monitoring_system=mon_sys
     )
     incoming.status = IncomingEvent.Status.ATTACHED
     incoming.save()
@@ -217,12 +223,16 @@ def _handle_recovery(incoming, resource):
     failing = set(ResourceState.objects.filter(is_failing=True).values_list('resource_id', flat=True))
     incidents = Incident.objects.filter(status__in=OPEN_STATUSES, events__ci=resource).distinct()
     for incident in incidents:
+        mon_sys = MonitoringSystem.objects.first()
+        if not mon_sys:
+            mon_sys = MonitoringSystem.objects.create(name='Default', system_type='generic', ingest_method='webhook')
+
         event = Event.objects.create(
             incident=incident, ci=resource,
             title=f'Восстановлено: {incoming.title}', severity='info',
             received_at=timezone.now(), event_time=timezone.now(), last_seen_at=timezone.now(),
             fingerprint=f"rec-{incoming.external_id}", status='resolved',
-            monitoring_system_id=1
+            monitoring_system=mon_sys
         )
         incoming.monitoring_event = incoming.monitoring_event or event
         _history(incident, f'Ресурс {resource.name} восстановился')
@@ -251,7 +261,7 @@ def process(data):
         except IntegrityError:
             return 'duplicate', None, False
 
-        resource = ConfigurationItem.objects.select_related('owner').filter(name=data['resource_name']).first()
+        resource = ConfigurationItem.objects.filter(name=data['resource_name']).first()
         if resource is None:
             incoming.status = IncomingEvent.Status.UNKNOWN_RESOURCE
             incoming.save(update_fields=['status'])

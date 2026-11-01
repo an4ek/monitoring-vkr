@@ -240,3 +240,63 @@ class IncidentTimeline(models.Model):
 
     class Meta:
         ordering = ['created_at']
+
+class ResourceState(models.Model):
+    """Работает ресурс сейчас или нет — по последнему событию от мониторинга."""
+    resource = models.OneToOneField(ConfigurationItem, on_delete=models.CASCADE, related_name='state')
+    is_failing = models.BooleanField(default=False)
+    severity = models.CharField(max_length=20, blank=True)
+    since = models.DateTimeField(null=True, blank=True)
+
+    def __str__(self):
+        return f'{self.resource.name}: {"сбой" if self.is_failing else "работает"}'
+
+
+class Subscription(models.Model):
+    """Сотрудник просит сообщать ему о сбоях сервиса."""
+    person = models.ForeignKey(Employee, on_delete=models.CASCADE, related_name='subscriptions')
+    service = models.ForeignKey(BusinessService, on_delete=models.CASCADE, related_name='subscriptions')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=['person', 'service'], name='unique_subscription'),
+        ]
+
+
+class Notification(models.Model):
+    """Одно отправленное (или не отправленное) оповещение."""
+    class Kind(models.TextChoices):
+        FIX = 'fix', 'Устранить'
+        INFO = 'info', 'К сведению'
+
+    class Channel(models.TextChoices):
+        EMAIL = 'email', 'почта'
+        MATTERMOST = 'mattermost', 'Mattermost'
+
+    class Status(models.TextChoices):
+        PENDING = 'pending', 'Отправляется'
+        SENT = 'sent', 'Отправлено'
+        FAILED = 'failed', 'Не отправлено'
+
+    incident = models.ForeignKey(Incident, null=True, blank=True, on_delete=models.CASCADE, related_name='notifications')
+    person = models.ForeignKey(Employee, null=True, blank=True, on_delete=models.SET_NULL)
+    address = models.CharField(max_length=200)
+    channel = models.CharField(max_length=20, choices=Channel.choices)
+    kind = models.CharField(max_length=10, choices=Kind.choices)
+    subject = models.CharField(max_length=300)
+    text = models.TextField()
+    status = models.CharField(max_length=10, choices=Status.choices, default=Status.PENDING)
+    attempts = models.PositiveSmallIntegerField(default=0)
+    error = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['created_at']
+
+
+class IncidentNotifyState(models.Model):
+    """С какой первопричиной и какими сервисами по инциденту уже рассылали оповещения."""
+    incident = models.OneToOneField(Incident, on_delete=models.CASCADE, related_name='notify_state')
+    root_cause = models.ForeignKey(ConfigurationItem, null=True, on_delete=models.SET_NULL)
+    service_ids = models.JSONField(default=list)

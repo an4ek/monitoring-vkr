@@ -13,7 +13,8 @@ from django.utils import timezone
 from api.models import Incident, IncidentTimeline
 
 from . import logic, notify
-from .models import IncomingEvent, Notification
+from .models import IncomingEvent
+from api.models import Notification
 
 
 @shared_task
@@ -56,7 +57,7 @@ def _who(notification):
 
 @shared_task
 def send_notifications(incident_id):
-    incident = Incident.objects.select_related('root_cause__owner').get(id=incident_id)
+    incident = Incident.objects.select_related('root_cause_ci__owner').get(id=incident_id)
     recipients = notify.collect_recipients(incident)
 
     sent, retry = {'fix': [], 'info': []}, []

@@ -24,6 +24,26 @@ services:
       timeout: 3s
       retries: 10
 
+  # --- НОВАЯ БАЗА ДЛЯ СЫРЫХ СОБЫТИЙ ---
+  postgres-raw:
+    image: postgres:16
+    container_name: vkr-postgres-raw
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: monitoring_raw
+      POSTGRES_USER: monitoring
+      POSTGRES_PASSWORD: monitoring
+    ports:
+      - "5433:5432"  # Другой порт, чтобы не конфликтовать
+    volumes:
+      - pgdata_raw:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U monitoring -d monitoring_raw"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+  # ------------------------------------
+
   rabbitmq:
     image: rabbitmq:3.13-management
     container_name: vkr-rabbitmq
@@ -52,4 +72,5 @@ services:
 
 volumes:
   pgdata:
+  pgdata_raw:  
   rabbitdata:

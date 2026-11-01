@@ -1,216 +1,128 @@
-from datetime import datetime
+import uuid
+from datetime import timedelta
 from django.core.management.base import BaseCommand
-from django.utils.dateparse import parse_datetime
+from django.utils import timezone
+from django.db import transaction
 
 from api.models import (
-    Department, Person, Service, Resource,
-    Incident, IncidentHistoryItem, MonitoringEvent,
+    Department, Employee, CIClass, CIRelationshipType, ConfigurationItem,
+    CIRelationship, BusinessService, ServiceCI, Incident, IncidentTimeline, IncidentService,
+    MonitoringSystem
 )
 
-
 class Command(BaseCommand):
-    help = 'Загружает тестовые данные из mocks/data.ts в базу'
+    help = 'Загружает тестовые данные в CMDB'
 
+    @transaction.atomic
     def handle(self, *args, **options):
-        self.stdout.write('Загружаю данные…')
+        self.stdout.write('Очистка старых данных...')
+        IncidentService.objects.all().delete()
+        IncidentTimeline.objects.all().delete()
+        Incident.objects.all().delete()
+        ServiceCI.objects.all().delete()
+        BusinessService.objects.all().delete()
+        CIRelationship.objects.all().delete()
+        ConfigurationItem.objects.all().delete()
+        CIRelationshipType.objects.all().delete()
+        CIClass.objects.all().delete()
+        Employee.objects.all().delete()
+        Department.objects.all().delete()
 
-        # --- Отделы ---
-        departments_data = [
-            (1, 'ИТ-инфраструктура'),
-            (2, 'Разработка'),
-            (3, 'Бухгалтерия'),
-            (4, 'Отдел продаж'),
-            (5, 'Служба поддержки'),
-        ]
-        deps = {}
-        for pk, name in departments_data:
-            deps[pk], _ = Department.objects.update_or_create(id=pk, defaults={'name': name})
+        self.stdout.write('Создание систем мониторинга...')
+        mon_zabbix = MonitoringSystem.objects.create(name='Zabbix', system_type='zabbix', ingest_method='webhook')
+        mon_prom = MonitoringSystem.objects.create(name='Prometheus', system_type='prometheus', ingest_method='webhook')
+        self.stdout.write('Создание отделов и сотрудников...')
+        dep_infra = Department.objects.create(name='ИТ-инфраструктура', code='infra')
+        dep_dev = Department.objects.create(name='Разработка', code='dev')
+        dep_sales = Department.objects.create(name='Отдел продаж', code='sales')
 
-        # --- Сотрудники ---
-        people_data = [
-            (1, 'Иванов Сергей', 1, 'ivanov@example.local', '@ivanov'),
-            (2, 'Петрова Мария', 1, 'petrova@example.local', '@petrova'),
-            (3, 'Смирнов Алексей', 2, 'smirnov@example.local', '@smirnov'),
-            (4, 'Орлова Елена', 2, 'orlova@example.local', '@orlova'),
-        ]
-        people = {}
-        for pk, full_name, dep_id, email, mm in people_data:
-            people[pk], _ = Person.objects.update_or_create(
-                id=pk,
-                defaults=dict(
-                    full_name=full_name,
-                    department=deps[dep_id],
-                    email=email,
-                    mattermost=mm,
-                ),
+        emp_ivanov = Employee.objects.create(login='ivanov', full_name='Иванов Сергей', email='ivanov@example.local', department=dep_infra, mattermost='@ivanov')
+        emp_petrova = Employee.objects.create(login='petrova', full_name='Петрова Мария', email='petrova@example.local', department=dep_infra, mattermost='@petrova')
+        emp_smirnov = Employee.objects.create(login='smirnov', full_name='Смирнов Алексей', email='smirnov@example.local', department=dep_dev, mattermost='@smirnov')
+        emp_orlova = Employee.objects.create(login='orlova', full_name='Орлова Елена', email='orlova@example.local', department=dep_dev, mattermost='@orlova')
+
+        self.stdout.write('Создание классов объектов и типов связей...')
+        class_server = CIClass.objects.create(code='server', name='Сервер')
+        class_db = CIClass.objects.create(code='database', name='База данных')
+        class_app = CIClass.objects.create(code='application', name='Приложение')
+        class_net = CIClass.objects.create(code='network', name='Сеть')
+        class_queue = CIClass.objects.create(code='queue', name='Очередь')
+        class_cache = CIClass.objects.create(code='cache', name='Кэш')
+
+        rel_depends = CIRelationshipType.objects.create(code='depends_on', name='Зависит от', propagates_failure=True)
+
+        self.stdout.write('Создание ресурсов (CI)...')
+        # Словарь для удобного связывания по имени
+        ci = {}
+        
+        def add_ci(name, ci_class, desc, owner):
+            c = ConfigurationItem.objects.create(
+                name=name, ci_class=ci_class, environment='prod',
+                department=dep_infra, owner=owner, attributes={'description': desc}
             )
+            ci[name] = c
+            return c
 
-        # --- Сервисы ---
-        services_data = [
-            (1, 'Корпоративный сайт', 'Сайт компании и форма заявок', 4, 3, 'ok', 99.5, 99.92),
-            (2, 'CRM', 'Учёт клиентов и сделок', 4, 4, 'down', 99.9, 98.7),
-            (3, 'Личный кабинет клиента', 'Заявки и статусы для клиентов', 5, 3, 'degraded', 99.5, 99.1),
-            (4, '1С: Бухгалтерия', 'Бухгалтерский учёт', 3, 1, 'ok', 99.0, 99.6),
-            (5, 'Корпоративная почта', 'Почта сотрудников', 1, 2, 'degraded', 99.5, 99.7),
-            (6, 'Файловое хранилище', 'Общие папки и резервные копии', 1, 2, 'ok', 99.0, 100.0),
-        ]
-        services = {}
-        for pk, name, desc, dep_id, owner_id, status, slo, avail in services_data:
-            services[pk], _ = Service.objects.update_or_create(
-                id=pk,
-                defaults=dict(
-                    name=name, description=desc,
-                    department=deps[dep_id], owner=people[owner_id],
-                    status=status, slo_target=slo, availability=avail,
-                ),
-            )
+        add_ci('sw-core-01', class_net, 'Центральный коммутатор', emp_ivanov)
+        add_ci('lb-01', class_app, 'Балансировщик Nginx', emp_ivanov)
+        add_ci('web-01', class_server, 'Веб-сервер сайта', emp_ivanov)
+        add_ci('app-site', class_app, 'Приложение сайта', emp_smirnov)
+        add_ci('app-crm', class_app, 'Приложение CRM', emp_orlova)
+        add_ci('db-01', class_db, 'PostgreSQL сайта', emp_ivanov)
+        add_ci('db-02', class_db, 'PostgreSQL CRM', emp_ivanov)
+        add_ci('mq-01', class_queue, 'RabbitMQ для CRM', emp_ivanov)
+        add_ci('srv-1c', class_server, 'Сервер 1С', emp_ivanov)
+        add_ci('db-1c', class_db, 'PostgreSQL для 1С', emp_ivanov)
+        add_ci('mail-01', class_server, 'Почтовый сервер', emp_petrova)
 
-        # --- Ресурсы ---
-        wiki = 'https://wiki.example.local/runbooks'
-        resources_data = [
-            (1, 'sw-core-01', 'network', 'prod', 'Центральный коммутатор', 1, [], [], f'{wiki}/switch'),
-            (2, 'lb-01', 'application', 'prod', 'Балансировщик Nginx', 1, [1, 3], [1], f'{wiki}/nginx'),
-            (3, 'web-01', 'server', 'prod', 'Веб-сервер сайта', 1, [1], [1], f'{wiki}/linux-server'),
-            (4, 'app-site', 'application', 'prod', 'Приложение сайта', 3, [1], [3, 7], f'{wiki}/site'),
-            (5, 'app-crm', 'application', 'prod', 'Приложение CRM', 4, [2], [8, 9], f'{wiki}/crm'),
-            (6, 'app-lk', 'application', 'prod', 'Приложение личного кабинета', 3, [3], [2, 8, 10], f'{wiki}/lk'),
-            (7, 'db-01', 'database', 'prod', 'PostgreSQL сайта', 1, [1], [1], f'{wiki}/postgresql'),
-            (8, 'db-02', 'database', 'prod', 'PostgreSQL CRM и личного кабинета', 1, [2, 3], [1], f'{wiki}/postgresql'),
-            (9, 'mq-01', 'queue', 'prod', 'RabbitMQ для CRM', 1, [2], [1], f'{wiki}/rabbitmq'),
-            (10, 'redis-01', 'cache', 'prod', 'Redis личного кабинета', 1, [3], [1], f'{wiki}/redis'),
-            (11, 'srv-1c', 'server', 'prod', 'Сервер 1С', 1, [4], [1, 12], f'{wiki}/1c'),
-            (12, 'db-1c', 'database', 'prod', 'PostgreSQL для 1С', 1, [4], [1], f'{wiki}/postgresql'),
-            (13, 'mail-01', 'server', 'prod', 'Почтовый сервер', 2, [5], [1], f'{wiki}/mail'),
-            (14, 'nas-01', 'server', 'prod', 'Сетевое хранилище', 2, [6], [1], f'{wiki}/nas'),
-            (15, 'backup-01', 'server', 'prod', 'Сервер резервных копий', 2, [6], [1, 14], f'{wiki}/backup'),
-            (16, 'db-02-test', 'database', 'test', 'Тестовая копия базы CRM', 4, [2], [], f'{wiki}/postgresql'),
-        ]
-        resources = {}
-        for pk, name, rtype, env, desc, owner_id, svc_ids, depends_on_ids, runbook in resources_data:
-            res, _ = Resource.objects.update_or_create(
-                id=pk,
-                defaults=dict(
-                    name=name, type=rtype, environment=env, description=desc,
-                    owner=people[owner_id], runbook_url=runbook,
-                ),
-            )
-            res.services.set([services[i] for i in svc_ids])
-            resources[pk] = res
+        self.stdout.write('Создание графа зависимостей...')
+        # В новой схеме source зависит от target
+        # app-site зависит от web-01 и db-01
+        CIRelationship.objects.create(source_ci=ci['app-site'], target_ci=ci['web-01'], relationship_type=rel_depends)
+        CIRelationship.objects.create(source_ci=ci['app-site'], target_ci=ci['db-01'], relationship_type=rel_depends)
+        # web-01 зависит от sw-core-01
+        CIRelationship.objects.create(source_ci=ci['web-01'], target_ci=ci['sw-core-01'], relationship_type=rel_depends)
+        CIRelationship.objects.create(source_ci=ci['db-01'], target_ci=ci['sw-core-01'], relationship_type=rel_depends)
+        
+        # app-crm зависит от db-02 и mq-01
+        CIRelationship.objects.create(source_ci=ci['app-crm'], target_ci=ci['db-02'], relationship_type=rel_depends)
+        CIRelationship.objects.create(source_ci=ci['app-crm'], target_ci=ci['mq-01'], relationship_type=rel_depends)
+        CIRelationship.objects.create(source_ci=ci['db-02'], target_ci=ci['sw-core-01'], relationship_type=rel_depends)
 
-        # Второй проход: depends_on (нужны все ресурсы созданными)
-        for pk, _, _, _, _, _, _, depends_on_ids, _ in resources_data:
-            resources[pk].depends_on.set([resources[i] for i in depends_on_ids])
+        # srv-1c зависит от db-1c
+        CIRelationship.objects.create(source_ci=ci['srv-1c'], target_ci=ci['db-1c'], relationship_type=rel_depends)
+        CIRelationship.objects.create(source_ci=ci['srv-1c'], target_ci=ci['sw-core-01'], relationship_type=rel_depends)
 
-        # --- Инциденты ---
-        incidents_data = [
-            {
-                'id': 1,
-                'title': 'Недоступны CRM и личный кабинет',
-                'status': 'open', 'severity': 'critical',
-                'root_cause_id': 8, 'affected_service_ids': [2, 3],
-                'responsible_id': 1,
-                'started_at': '2026-10-22T09:14:05+07:00',
-                'resolved_at': None,
-                'history': [
-                    ('2026-10-22T09:14:05+07:00', 'Инцидент создан по событию от Zabbix'),
-                    ('2026-10-22T09:14:40+07:00', 'Добавлены события-следствия: app-crm, app-lk'),
-                    ('2026-10-22T09:14:42+07:00', 'Оповещены: Иванов Сергей (Mattermost), Орлова Елена (почта)'),
-                ],
-            },
-            {
-                'id': 2,
-                'title': 'Заканчивается место на почтовом сервере',
-                'status': 'in_progress', 'severity': 'warning',
-                'root_cause_id': 13, 'affected_service_ids': [5],
-                'responsible_id': 2,
-                'started_at': '2026-10-22T07:40:00+07:00',
-                'resolved_at': None,
-                'history': [
-                    ('2026-10-22T07:40:00+07:00', 'Инцидент создан по событию от Zabbix'),
-                    ('2026-10-22T07:40:02+07:00', 'Оповещена: Петрова Мария (Mattermost)'),
-                    ('2026-10-22T08:05:00+07:00', 'Петрова Мария взяла в работу'),
-                ],
-            },
-            {
-                'id': 3,
-                'title': 'Сбой центрального коммутатора',
-                'status': 'resolved', 'severity': 'critical',
-                'root_cause_id': 1, 'affected_service_ids': [1, 2, 3, 4, 5, 6],
-                'responsible_id': 1,
-                'started_at': '2026-10-20T13:02:10+07:00',
-                'resolved_at': '2026-10-20T13:27:00+07:00',
-                'history': [
-                    ('2026-10-20T13:02:10+07:00', 'Инцидент создан по событию от Zabbix'),
-                    ('2026-10-20T13:03:20+07:00', '4 события распознаны как следствия и добавлены в инцидент'),
-                    ('2026-10-20T13:03:22+07:00', 'Оповещены: Иванов Сергей (Mattermost)'),
-                    ('2026-10-20T13:06:00+07:00', 'Иванов Сергей взял в работу'),
-                    ('2026-10-20T13:27:00+07:00', 'Закрыт: заменён блок питания коммутатора'),
-                ],
-            },
-            {
-                'id': 4,
-                'title': 'Высокая загрузка процессора на сервере 1С',
-                'status': 'resolved', 'severity': 'warning',
-                'root_cause_id': 11, 'affected_service_ids': [4],
-                'responsible_id': 1,
-                'started_at': '2026-10-19T10:15:00+07:00',
-                'resolved_at': '2026-10-19T10:50:00+07:00',
-                'history': [
-                    ('2026-10-19T10:15:00+07:00', 'Инцидент создан по событию от Zabbix'),
-                    ('2026-10-19T10:20:00+07:00', 'Иванов Сергей взял в работу'),
-                    ('2026-10-19T10:50:00+07:00', 'Закрыт: завершён зависший фоновый отчёт'),
-                ],
-            },
-        ]
-        incidents = {}
-        for data in incidents_data:
-            inc, _ = Incident.objects.update_or_create(
-                id=data['id'],
-                defaults=dict(
-                    title=data['title'], status=data['status'], severity=data['severity'],
-                    root_cause=resources[data['root_cause_id']],
-                    responsible=people[data['responsible_id']],
-                    started_at=parse_datetime(data['started_at']),
-                    resolved_at=parse_datetime(data['resolved_at']) if data['resolved_at'] else None,
-                ),
-            )
-            inc.affected_services.set([services[i] for i in data['affected_service_ids']])
-            inc.history.all().delete()
-            for at, text in data['history']:
-                IncidentHistoryItem.objects.create(
-                    incident=inc, at=parse_datetime(at), text=text,
-                )
-            incidents[data['id']] = inc
+        self.stdout.write('Создание бизнес-сервисов...')
+        s_site = BusinessService.objects.create(name='Корпоративный сайт', service_type='web', department=dep_sales, owner=emp_smirnov, current_status='ok')
+        s_crm = BusinessService.objects.create(name='CRM', service_type='web', department=dep_sales, owner=emp_orlova, current_status='ok')
+        s_1c = BusinessService.objects.create(name='1С: Бухгалтерия', service_type='erp', department=dep_infra, owner=emp_ivanov, current_status='ok')
+        s_mail = BusinessService.objects.create(name='Корпоративная почта', service_type='comm', department=dep_infra, owner=emp_petrova, current_status='ok')
 
-        # --- События ---
-        events_data = [
-            (1, 1, 'zabbix', 8, 'PostgreSQL: нет ответа на порту 5432', 'critical', '2026-10-22T09:14:05+07:00'),
-            (2, 1, 'prometheus', 5, 'Доля ошибок 5xx выше 20%', 'critical', '2026-10-22T09:14:40+07:00'),
-            (3, 1, 'prometheus', 6, 'Время ответа выше 3 секунд', 'warning', '2026-10-22T09:15:10+07:00'),
-            (4, 1, 'zabbix', 5, 'Веб-проверка CRM не проходит', 'critical', '2026-10-22T09:15:30+07:00'),
-            (5, 2, 'zabbix', 13, 'Свободно меньше 10% на /var', 'warning', '2026-10-22T07:40:00+07:00'),
-            (6, 3, 'zabbix', 1, 'Нет ответа на ping', 'critical', '2026-10-20T13:02:10+07:00'),
-            (7, 3, 'prometheus', 2, 'HTTP-проверка не проходит', 'critical', '2026-10-20T13:02:40+07:00'),
-            (8, 3, 'zabbix', 13, 'Нет ответа на ping', 'critical', '2026-10-20T13:02:45+07:00'),
-            (9, 3, 'zabbix', 11, 'Нет ответа на ping', 'critical', '2026-10-20T13:03:00+07:00'),
-            (10, 3, 'prometheus', 5, 'Цель мониторинга недоступна', 'critical', '2026-10-20T13:03:20+07:00'),
-            (11, 4, 'zabbix', 11, 'Загрузка процессора выше 90% дольше 10 минут', 'warning', '2026-10-19T10:15:00+07:00'),
-        ]
-        for pk, inc_id, source, res_id, title, severity, received_at in events_data:
-            MonitoringEvent.objects.update_or_create(
-                id=pk,
-                defaults=dict(
-                    incident=incidents[inc_id], source=source,
-                    resource=resources[res_id], title=title,
-                    severity=severity, received_at=parse_datetime(received_at),
-                ),
-            )
+        self.stdout.write('Привязка ресурсов к сервисам...')
+        # Сайт
+        ServiceCI.objects.create(service=s_site, ci=ci['app-site'])
+        ServiceCI.objects.create(service=s_site, ci=ci['web-01'])
+        ServiceCI.objects.create(service=s_site, ci=ci['db-01'])
+        # CRM
+        ServiceCI.objects.create(service=s_crm, ci=ci['app-crm'])
+        ServiceCI.objects.create(service=s_crm, ci=ci['db-02'])
+        # 1C
+        ServiceCI.objects.create(service=s_1c, ci=ci['srv-1c'])
+        ServiceCI.objects.create(service=s_1c, ci=ci['db-1c'])
+        # Почта
+        ServiceCI.objects.create(service=s_mail, ci=ci['mail-01'])
 
-        self.stdout.write(self.style.SUCCESS(
-            f'Готово: отделов {Department.objects.count()}, '
-            f'сотрудников {Person.objects.count()}, '
-            f'сервисов {Service.objects.count()}, '
-            f'ресурсов {Resource.objects.count()}, '
-            f'инцидентов {Incident.objects.count()}, '
-            f'событий {MonitoringEvent.objects.count()}.'
-        ))
+        self.stdout.write('Создание тестового инцидента...')
+        inc = Incident.objects.create(
+            title='Недоступны CRM и личный кабинет',
+            status='open',
+            severity='critical',
+            root_cause_ci=ci['db-02'],
+            responsible=emp_ivanov,
+            started_at=timezone.now() - timedelta(minutes=15)
+        )
+        IncidentService.objects.create(incident=inc, service=s_crm, impact_level='high')
+        IncidentTimeline.objects.create(incident=inc, entry_type='system', text='Инцидент создан по событию от Zabbix')
+
+        self.stdout.write(self.style.SUCCESS('Тестовые данные CMDB успешно загружены!'))

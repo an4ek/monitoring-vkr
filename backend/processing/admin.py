@@ -1,5 +1,8 @@
 from django.contrib import admin
+from .models import IncomingEvent
 
-from .models import IncomingEvent, Notification, ResourceState, Subscription
-
-admin.site.register([IncomingEvent, Notification, ResourceState, Subscription])
+@admin.register(IncomingEvent)
+class IncomingEventAdmin(admin.ModelAdmin):
+    list_display = ('id', 'source', 'resource_name', 'status', 'received_at')
+    list_filter = ('source', 'status')
+    search_fields = ('resource_name', 'title')
