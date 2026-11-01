@@ -1,0 +1,11 @@
+groups:
+  - name: example
+    rules:
+      - alert: InstanceDown
+        expr: up == 0
+        for: 1m
+        labels:
+          severity: critical
+          resource: "db-01"
+        annotations:
+          summary: "Target {{ $labels.instance }} is down"

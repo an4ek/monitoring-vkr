@@ -1,0 +1,35 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ['alertmanager:9093']
+
+rule_files:
+  - 'alerts.yml'   
+
+scrape_configs:
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # Наши новые "устройства"
+  - job_name: 'server-node-01'       # Сервер
+    static_configs:
+      - targets: ['node-exporter:9100']
+        labels:
+          resource: 'web-01'       
+
+  - job_name: 'db-postgres-01'       # База данных
+    static_configs:
+      - targets: ['postgres-exporter:9187']
+        labels:
+          resource: 'db-01'          
+
+  - job_name: 'nginx-app-01'         # Приложение
+    static_configs:
+      - targets: ['nginx-app:80']
+        labels:
+          resource: 'app-site'       

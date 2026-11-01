@@ -1,0 +1,86 @@
+name: vkr-stand
+
+services:
+  # --- ZABBIX ---
+  zabbix-db:
+    image: postgres:15-alpine
+    container_name: stand-zabbix-db
+    environment:
+      POSTGRES_USER: zabbix
+      POSTGRES_PASSWORD: zabbix_pwd
+      POSTGRES_DB: zabbix
+    volumes:
+      - zabbix_db_data:/var/lib/postgresql/data
+
+  zabbix-server:
+    image: zabbix/zabbix-server-pgsql:alpine-6.4-latest
+    container_name: stand-zabbix-server
+    environment:
+      DB_SERVER_HOST: zabbix-db
+      POSTGRES_USER: zabbix
+      POSTGRES_PASSWORD: zabbix_pwd
+      POSTGRES_DB: zabbix
+    ports:
+      - "10051:10051"
+    depends_on:
+      - zabbix-db
+
+  zabbix-web:
+    image: zabbix/zabbix-web-nginx-pgsql:alpine-6.4-latest
+    container_name: stand-zabbix-web
+    environment:
+      ZBX_SERVER_HOST: zabbix-server
+      DB_SERVER_HOST: zabbix-db
+      POSTGRES_USER: zabbix
+      POSTGRES_PASSWORD: zabbix_pwd
+      POSTGRES_DB: zabbix
+      PHP_TZ: Asia/Novokuznetsk
+    ports:
+      - "8080:8080"
+    depends_on:
+      - zabbix-server
+
+  # --- PROMETHEUS ---
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: stand-prometheus
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+      - ./alerts.yml:/etc/prometheus/alerts.yml
+    ports:
+      - "9090:9090"
+
+  alertmanager:
+    image: prom/alertmanager:latest
+    container_name: stand-alertmanager
+    volumes:
+      - ./alertmanager.yml:/etc/alertmanager/alertmanager.yml
+    ports:
+      - "9093:9093"
+
+  node-exporter:
+    image: prom/node-exporter:latest
+    container_name: stand-node-exporter
+    ports:
+      - "9100:9100"
+
+  # 2. Эмуляция базы данных (отдает метрики PostgreSQL)
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:latest
+    container_name: stand-postgres-exporter
+    environment:
+                  DATA_SOURCE_NAME: "postgresql://monitoring:monitoring@host.docker.internal:5432/monitoring?sslmode=disable"
+    ports:
+      - "9187:9187"
+    depends_on:
+      - prometheus # просто чтобы порядок запуска был
+
+  # 3. Эмуляция приложения (Nginx)
+  nginx-app:
+    image: nginx:alpine
+    container_name: stand-nginx-app
+    ports:
+      - "8081:80"
+
+volumes:
+  zabbix_db_data:

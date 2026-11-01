@@ -37,7 +37,7 @@ DEMO_COMMANDS_ENABLED = DEBUG
 
 # SECURITY WARNING: don't run with debug turned on in production!
 
-ALLOWED_HOSTS = os.environ.get('DJANGO_ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',')
+ALLOWED_HOSTS = os.environ.get('DJANGO_ALLOWED_HOSTS', 'localhost,127.0.0.1,host.docker.internal').split(',')
 
 
 # Application definition
