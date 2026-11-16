@@ -261,10 +261,11 @@ def _handle_recovery(incoming, resource):
 
 
 def process(incoming):
-    """Обрабатывает принятое событие (IncomingEvent). Возвращает (результат, id инцидента, нужна ли рассылка)."""
+    """Обрабатывает принятое событие (IncomingEvent). Возвращает (результат, id инцидента, нужна ли рассылка).
+    Инцидент и статус события записываются в одной транзакции: либо все, либо ничего."""
     incident_id, notify_needed = None, False
 
-    with transaction.atomic():  # каталог и инциденты: все или ничего
+    with transaction.atomic():
         with connection.cursor() as cursor:
             cursor.execute('SELECT pg_advisory_xact_lock(%s)', [GROUPING_LOCK_ID])
 
@@ -280,9 +281,8 @@ def process(incoming):
             notify_needed = needs_notification(incident)
             result = 'attached'
 
-    # Изменения по инциденту зафиксированы, теперь отдельно отмечаем статус события
-    incoming.status = STATUS_BY_RESULT[result]
-    incoming.processed_at = timezone.now()
-    incoming.error = ''
-    incoming.save(update_fields=['status', 'processed_at', 'error'])
+        incoming.status = STATUS_BY_RESULT[result]
+        incoming.processed_at = timezone.now()
+        incoming.error = ''
+        incoming.save(update_fields=['status', 'processed_at', 'error'])
     return result, incident_id, notify_needed

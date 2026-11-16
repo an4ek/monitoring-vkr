@@ -8,12 +8,12 @@ from django.db import IntegrityError, transaction
 from django.test import TestCase, override_settings
 
 from api.models import (
-    BusinessService, Event, Incident, Notification, ResourceState, Subscription,
+    BusinessService, Event, Incident, IncidentTimeline, Notification, ResourceState, Subscription,
 )
 from processing import logic
 from processing.models import IncomingEvent
 from processing.normalize import from_alertmanager, from_zabbix
-from processing.tasks import send_notifications
+from processing.tasks import process_event, send_notifications
 
 
 def zabbix(event_id, host, kind='problem', severity='critical', title='Нет ответа на ping'):
@@ -85,6 +85,45 @@ class ProcessingTests(TestCase):
         logic.process(feed(1, 'web-01', kind='recovery'))
         self.assertEqual(Incident.objects.get(id=incident_id).status, 'resolved')
         self.assertFalse(ResourceState.objects.get(resource__name='web-01').is_failing)
+
+    def test_recovery_reprocessing_does_not_duplicate(self):
+        _, incident_id, _ = logic.process(feed(1, 'web-01'))
+        logic.process(feed(2, 'db-01'))  # тот же инцидент, web-01 остается в сбое
+        recovery = feed(2, 'db-01', kind='recovery')
+        logic.process(recovery)
+        events, history = Event.objects.count(), IncidentTimeline.objects.filter(incident_id=incident_id).count()
+
+        recovery.status = IncomingEvent.Status.NEW  # как будто обработчик запустился повторно
+        self.assertEqual(logic.process(recovery)[0], 'recovery')
+        self.assertEqual(Event.objects.count(), events)
+        self.assertEqual(IncidentTimeline.objects.filter(incident_id=incident_id).count(), history)
+        self.assertEqual(Incident.objects.get(id=incident_id).status, 'open')
+
+    @mock.patch('processing.tasks.send_notifications.delay')
+    def test_process_event_is_one_transaction(self, send):
+        incoming = feed(1, 'web-01')
+        with self.captureOnCommitCallbacks() as callbacks:
+            self.assertEqual(process_event(incoming.id), 'attached')
+        send.assert_not_called()  # до фиксации транзакции рассылка не ставится
+        for callback in callbacks:
+            callback()
+        send.assert_called_once()
+        incoming.refresh_from_db()
+        self.assertEqual(incoming.status, IncomingEvent.Status.ATTACHED)
+        self.assertEqual(process_event(incoming.id), 'skipped')  # повтор задачи ничего не делает
+        self.assertEqual(Event.objects.count(), 1)
+
+    def test_process_event_failure_rolls_back_and_keeps_error(self):
+        incoming = feed(1, 'web-01')
+        incidents_before = Incident.objects.count()
+        with mock.patch('processing.logic.needs_notification', side_effect=RuntimeError('сбой')), \
+                mock.patch.object(process_event, 'max_retries', 0):
+            with self.assertRaises(RuntimeError):
+                process_event(incoming.id)
+        incoming.refresh_from_db()
+        self.assertEqual((incoming.status, incoming.error), (IncomingEvent.Status.FAILED, 'сбой'))
+        self.assertEqual(Incident.objects.count(), incidents_before)  # инцидент откатился
+        self.assertEqual(Event.objects.count(), 0)
 
     @override_settings(MAILERS={'default': {'BACKEND': 'django.core.mail.backends.locmem.EmailBackend'}})
     def test_recipients_deduplicated(self):

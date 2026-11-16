@@ -6,8 +6,11 @@
   retry_notification  — повторить неудачную отправку (до 3 раз через 1 минуту)
   notify_admin        — сообщить администратору о событии с неизвестным ресурсом
 """
+from functools import partial
+
 from celery import shared_task
 from django.conf import settings
+from django.db import transaction
 from django.utils import timezone
 
 from api.models import Incident, IncidentTimeline
@@ -19,25 +22,33 @@ from api.models import Notification
 
 @shared_task(bind=True, max_retries=5)
 def process_event(self, incoming_id):
-    incoming = IncomingEvent.objects.filter(id=incoming_id).first()
-    if incoming is None or incoming.status != IncomingEvent.Status.NEW:
-        return 'skipped'  # уже обработано или такого нет
-
     try:
-        result, incident_id, notify_needed = logic.process(incoming)
+        with transaction.atomic():
+            # Блокировка строки: второй обработчик того же события дождется конца
+            # этой транзакции и увидит уже новый статус
+            incoming = IncomingEvent.objects.select_for_update().filter(id=incoming_id).first()
+            if incoming is None or incoming.status != IncomingEvent.Status.NEW:
+                return 'skipped'  # уже обработано или такого нет
+
+            result, incident_id, notify_needed = logic.process(incoming)
+
+            # Задачи ставятся в очередь только после фиксации транзакции,
+            # чтобы обработчик рассылки уже видел инцидент
+            if result == 'unknown_resource':
+                transaction.on_commit(partial(notify_admin.delay, incoming.id))
+            if notify_needed:
+                transaction.on_commit(partial(send_notifications.delay, incident_id))
     except Exception as error:  # noqa: BLE001
-        incoming.error = str(error)[:1000]
-        if self.request.retries >= self.max_retries:
-            incoming.status = IncomingEvent.Status.FAILED
-            incoming.save(update_fields=['status', 'error'])
+        # Транзакция откатилась; ошибку записываем отдельно, чтобы она сохранилась
+        fields = {'error': str(error)[:1000]}
+        last_try = self.request.retries >= self.max_retries
+        if last_try:
+            fields['status'] = IncomingEvent.Status.FAILED
+        IncomingEvent.objects.filter(id=incoming_id, status=IncomingEvent.Status.NEW).update(**fields)
+        if last_try:
             raise
-        incoming.save(update_fields=['error'])
         raise self.retry(exc=error, countdown=10 * 2 ** self.request.retries)
 
-    if result == 'unknown_resource':
-        notify_admin.delay(incoming.id)
-    if notify_needed:
-        send_notifications.delay(incident_id)
     return result
 
 
