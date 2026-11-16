@@ -32,8 +32,8 @@ class Command(BaseCommand):
             raise CommandError('demo_reset работает только при DJANGO_DEBUG=1')
 
         self.stdout.write('Сброс данных...')
-        # Сырая база
-        IncomingEvent.objects.using('raw').all().delete()
+        # Принятые события (буфер)
+        IncomingEvent.objects.all().delete()
 
         # Основная база: очищаем все таблицы приложения api и обнуляем счетчики id.
         # CASCADE заодно очистит accounts_profile, он ссылается на сотрудников.

@@ -2,7 +2,7 @@ from django.db import models
 
 
 class IncomingEvent(models.Model):
-    """Принятое событие (буфер). Живет в отдельной базе raw.
+    """Принятое событие (буфер). Отдельная таблица в основной базе.
     payload — тело запроса так, как его прислал мониторинг."""
     class Source(models.TextChoices):
         ZABBIX = 'zabbix', 'Zabbix'

@@ -20,14 +20,13 @@ def zabbix(event_id, host, kind='problem', severity='critical', title='Нет о
             'resource_name': host, 'title': title, 'severity': severity}
 
 def feed(event):
-    """Как будто view уже записал событие в raw, и обработчик его забрал."""
+    """Как будто view уже записал событие в IncomingEvent, и обработчик его забрал."""
     incoming = IncomingEvent.objects.create(**event, payload=event)
     return logic.process(incoming)
 
 # Быстрый хеш паролей только для проверок, чтобы тесты не шли минуту
 @override_settings(PASSWORD_HASHERS=['django.contrib.auth.hashers.MD5PasswordHasher'])
 class ProcessingTests(TestCase):
-    databases = {'default', 'raw'}
     def setUp(self):
         with mock.patch('sys.stdout'):
             call_command('demo_reset')
@@ -36,7 +35,7 @@ class ProcessingTests(TestCase):
         event = zabbix(1, 'web-01')
         incoming = IncomingEvent.objects.create(**event, payload=event)
         logic.process(incoming)
-        incoming.status = IncomingEvent.Status.NEW  # как будто статус в raw не успел записаться
+        incoming.status = IncomingEvent.Status.NEW  # как будто статус события не успел записаться
         logic.process(incoming)
         self.assertEqual(Event.objects.count(), 1)
         self.assertEqual(Incident.objects.count(), 1)
@@ -97,7 +96,6 @@ class ProcessingTests(TestCase):
 @override_settings(PASSWORD_HASHERS=['django.contrib.auth.hashers.MD5PasswordHasher'])
 class AccessTests(TestCase):
     """Права: без входа ничего, мониторинг — только с ключом, разбор инцидента — только инженер."""
-    databases = {'default', 'raw'}
     def setUp(self):
         with mock.patch('sys.stdout'):
             call_command('demo_reset')

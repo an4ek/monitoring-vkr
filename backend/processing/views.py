@@ -42,8 +42,8 @@ def _accept(request, normalizer):
     to_queue, duplicates = [], 0
     for event in events:
         try:
-            # Если raw недоступна, исключение уйдет наружу (500), и мониторинг повторит отправку
-            with transaction.atomic(using='raw'):
+            # Если база недоступна, исключение уйдет наружу (500), и мониторинг повторит отправку
+            with transaction.atomic():
                 incoming = IncomingEvent.objects.create(**event, payload=request.data)
         except IntegrityError:
             duplicates += 1
@@ -60,7 +60,7 @@ def _accept(request, normalizer):
     for incoming_id in to_queue:
         try:
             process_event.delay(incoming_id)
-        except Exception:  # noqa: BLE001 — брокер недоступен: событие уже в raw, его подберет reprocess_events
+        except Exception:  # noqa: BLE001 — брокер недоступен: событие уже в базе, его подберет reprocess_events
             logger.exception('Не удалось поставить событие %s в очередь', incoming_id)
 
     return Response(

@@ -97,14 +97,6 @@ DATABASES = {
         'HOST': os.environ.get('POSTGRES_HOST', 'localhost'),
         'PORT': os.environ.get('POSTGRES_PORT', '5432'),
     },
-    'raw': {
-        'ENGINE': 'django.db.backends.postgresql',
-        'NAME': os.environ.get('POSTGRES_RAW_DB', 'monitoring_raw'),
-        'USER': 'monitoring',
-        'PASSWORD': 'monitoring',
-        'HOST': os.environ.get('POSTGRES_HOST', 'localhost'),
-        'PORT': os.environ.get('POSTGRES_RAW_PORT', '5433'),
-    }
 }
 
 
@@ -220,4 +212,3 @@ NOTIFY_RETRY_DELAY_SECONDS = 60
 # Адрес веб-интерфейса — для ссылки на инцидент в оповещении
 FRONTEND_URL = os.environ.get('FRONTEND_URL', 'http://localhost:5173')
 
-DATABASE_ROUTERS = ['config.routers.RawEventRouter']

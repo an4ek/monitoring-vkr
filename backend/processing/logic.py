@@ -261,10 +261,10 @@ def _handle_recovery(incoming, resource):
 
 
 def process(incoming):
-    """Обрабатывает событие из raw. Возвращает (результат, id инцидента, нужна ли рассылка)."""
+    """Обрабатывает принятое событие (IncomingEvent). Возвращает (результат, id инцидента, нужна ли рассылка)."""
     incident_id, notify_needed = None, False
 
-    with transaction.atomic():  # основная база: все или ничего
+    with transaction.atomic():  # каталог и инциденты: все или ничего
         with connection.cursor() as cursor:
             cursor.execute('SELECT pg_advisory_xact_lock(%s)', [GROUPING_LOCK_ID])
 
@@ -280,7 +280,7 @@ def process(incoming):
             notify_needed = needs_notification(incident)
             result = 'attached'
 
-    # Основная база зафиксирована, теперь отмечаем событие в raw
+    # Изменения по инциденту зафиксированы, теперь отдельно отмечаем статус события
     incoming.status = STATUS_BY_RESULT[result]
     incoming.processed_at = timezone.now()
     incoming.error = ''
