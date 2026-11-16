@@ -280,7 +280,9 @@ def process(incoming):
             notify_needed = needs_notification(incident)
             result = 'attached'
 
-    # Изменения по инциденту зафиксированы, теперь отдельно отмечаем статус события
+    # Статус события сохраняется уже после фиксации транзакции по инциденту, в отдельной.
+    # Если процесс упадет между ними, событие останется «Принято» и будет обработано повторно;
+    # _handle_problem и _handle_recovery не создают при этом дублей.
     incoming.status = STATUS_BY_RESULT[result]
     incoming.processed_at = timezone.now()
     incoming.error = ''
