@@ -281,6 +281,8 @@ def process(incoming):
             notify_needed = needs_notification(incident)
             result = 'attached'
 
+        # Статус события сохраняется в той же транзакции, что и инцидент: при ошибке
+        # откатится и то, и другое, и событие останется «Принято» для повторной обработки.
         incoming.status = STATUS_BY_RESULT[result]
         incoming.processed_at = timezone.now()
         incoming.error = ''
