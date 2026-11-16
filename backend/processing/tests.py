@@ -4,6 +4,7 @@ from unittest import mock
 from django.conf import settings
 from django.contrib.auth.models import User
 from django.core.management import call_command
+from django.db import IntegrityError, transaction
 from django.test import TestCase, override_settings
 
 from api.models import (
@@ -19,10 +20,10 @@ def zabbix(event_id, host, kind='problem', severity='critical', title='Нет о
     return {'source': 'zabbix', 'external_id': str(event_id), 'kind': kind,
             'resource_name': host, 'title': title, 'severity': severity}
 
-def feed(event):
-    """Как будто view уже записал событие в IncomingEvent, и обработчик его забрал."""
-    incoming = IncomingEvent.objects.create(**event, payload=event)
-    return logic.process(incoming)
+def feed(event_id, host, **kwargs):
+    """Как будто view уже записал событие в IncomingEvent. Возвращает запись для обработчика."""
+    event = zabbix(event_id, host, **kwargs)
+    return IncomingEvent.objects.create(**event, payload=event)
 
 # Быстрый хеш паролей только для проверок, чтобы тесты не шли минуту
 @override_settings(PASSWORD_HASHERS=['django.contrib.auth.hashers.MD5PasswordHasher'])
@@ -34,11 +35,12 @@ class ProcessingTests(TestCase):
     def test_reprocessing_does_not_duplicate(self):
         event = zabbix(1, 'web-01')
         incoming = IncomingEvent.objects.create(**event, payload=event)
+        incidents_before = Incident.objects.count()  # demo_reset уже создает тестовый инцидент
         logic.process(incoming)
         incoming.status = IncomingEvent.Status.NEW  # как будто статус события не успел записаться
         logic.process(incoming)
         self.assertEqual(Event.objects.count(), 1)
-        self.assertEqual(Incident.objects.count(), 1)
+        self.assertEqual(Incident.objects.count(), incidents_before + 1)
 
     def test_normalize(self):
         [z] = from_zabbix({'event_id': 1, 'host': 'web-01', 'name': 'x', 'severity': '5', 'status': '0'})
@@ -49,7 +51,11 @@ class ProcessingTests(TestCase):
 
     def test_duplicate_is_ignored(self):
         self.assertEqual(logic.process(feed(1, 'web-01'))[0], 'attached')
-        self.assertEqual(logic.process(feed(1, 'web-01'))[0], 'duplicate')
+        # Повтор того же события не записывается второй раз: его отсекает уникальность
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            feed(1, 'web-01')
+        self.assertEqual(IncomingEvent.objects.count(), 1)
+        self.assertEqual(Event.objects.count(), 1)
 
     def test_unknown_resource_is_saved(self):
         self.assertEqual(logic.process(feed(1, 'no-such-host'))[0], 'unknown_resource')
@@ -110,23 +116,32 @@ class AccessTests(TestCase):
         self.assertEqual(self.client.get('/api/incidents/').status_code, 200)
 
     @mock.patch('processing.views.process_event.delay')
-    def test_duplicate_is_not_queued_twice(self, delay):
+    def test_duplicate_is_queued_again_only_while_new(self, delay):
         body = {'event_id': 1, 'host': 'web-01', 'name': 'x', 'severity': '5', 'status': '1'}
         headers = {'X-Webhook-Token': settings.WEBHOOK_TOKEN}
-        first = self.client.post('/api/events/zabbix/', body, content_type='application/json', headers=headers)
-        second = self.client.post('/api/events/zabbix/', body, content_type='application/json', headers=headers)
+        post = lambda: self.client.post('/api/events/zabbix/', body, content_type='application/json', headers=headers)
+        first, second = post(), post()
         self.assertEqual((first.status_code, second.status_code), (202, 202))
         self.assertEqual(second.json()['duplicates'], 1)
         self.assertEqual(IncomingEvent.objects.count(), 1)
-        self.assertEqual(delay.call_count, 1)  # событие со статусом NEW повторно не ставится
+        # Событие еще не обработано (статус NEW): повтор снова ставится в очередь
+        self.assertEqual(delay.call_count, 2)
 
+        IncomingEvent.objects.update(status=IncomingEvent.Status.ATTACHED)
+        third = post()
+        self.assertEqual(third.json()['duplicates'], 1)
+        self.assertEqual(delay.call_count, 2)  # обработанное событие повторно не ставится
+
+    @mock.patch('processing.views.process_event.delay', side_effect=ConnectionError('брокер недоступен'))
     def test_event_is_saved_when_broker_is_down(self, delay):
         body = {'event_id': 7, 'host': 'web-01', 'name': 'x', 'severity': '5', 'status': '1'}
-        response = self.client.post('/api/events/zabbix/', body, content_type='application/json',
-                                    headers={'X-Webhook-Token': settings.WEBHOOK_TOKEN})
+        with self.assertLogs('processing.views', 'ERROR'):  # ошибка брокера пишется в лог
+            response = self.client.post('/api/events/zabbix/', body, content_type='application/json',
+                                        headers={'X-Webhook-Token': settings.WEBHOOK_TOKEN})
         self.assertEqual(response.status_code, 202)
         self.assertEqual(IncomingEvent.objects.get().status, IncomingEvent.Status.NEW)  # ждет reprocess_events
 
+    @mock.patch('processing.views.process_event.delay')
     def test_webhook_requires_token(self, delay):
         body = {'event_id': 1, 'host': 'web-01', 'name': 'x'}
         self.assertEqual(self.client.post('/api/events/zabbix/', body, content_type='application/json').status_code, 403)
