@@ -369,37 +369,34 @@ class AccessTests(TestCase):
         self.login('orlova')
         self.assertEqual(self.client.get('/api/incidents/').status_code, 200)
 
-    @mock.patch('processing.views.process_event.delay')
-    def test_duplicate_is_not_queued_again(self, delay):
+    def test_duplicate_is_ignored_by_webhook(self):
         body = {'event_id': 1, 'host': 'web-01', 'name': 'x', 'severity': '5', 'status': '1'}
         headers = {'X-Webhook-Token': settings.WEBHOOK_TOKEN}
         post = lambda: self.client.post('/api/events/zabbix/', body, content_type='application/json', headers=headers)
         first, second = post(), post()
         self.assertEqual((first.status_code, second.status_code), (202, 202))
-        self.assertEqual(second.json()['duplicates'], 1)
+        self.assertEqual((first.json()['duplicates'], second.json()['duplicates']), (0, 1))
         self.assertEqual(IncomingEvent.objects.count(), 1)
-        # Триггер обработал событие при вставке, поэтому повтор в очередь не ставится
-        self.assertEqual(IncomingEvent.objects.get().status, IncomingEvent.Status.ATTACHED)
-        self.assertEqual(delay.call_count, 1)
+        self.assertEqual(Event.objects.count(), 1)  # повтор не обрабатывается второй раз
 
-    @mock.patch('processing.views.process_event.delay', side_effect=ConnectionError('брокер недоступен'))
-    def test_event_is_saved_when_broker_is_down(self, delay):
+    def test_webhook_event_is_processed_on_insert(self):
         body = {'event_id': 7, 'host': 'web-01', 'name': 'x', 'severity': '5', 'status': '1'}
-        with self.assertLogs('processing.views', 'ERROR'):  # ошибка брокера пишется в лог
-            response = self.client.post('/api/events/zabbix/', body, content_type='application/json',
-                                        headers={'X-Webhook-Token': settings.WEBHOOK_TOKEN})
-        self.assertEqual(response.status_code, 202)
-        # Брокер для обработки не нужен: триггер уже обработал событие при вставке
-        self.assertEqual(IncomingEvent.objects.get().status, IncomingEvent.Status.ATTACHED)
-
-    @mock.patch('processing.views.process_event.delay')
-    def test_webhook_requires_token(self, delay):
-        body = {'event_id': 1, 'host': 'web-01', 'name': 'x'}
-        self.assertEqual(self.client.post('/api/events/zabbix/', body, content_type='application/json').status_code, 403)
         response = self.client.post('/api/events/zabbix/', body, content_type='application/json',
                                     headers={'X-Webhook-Token': settings.WEBHOOK_TOKEN})
         self.assertEqual(response.status_code, 202)
-        delay.assert_called_once()
+        # Отдельного обработчика нет: к ответу событие уже обработано триггером
+        incoming = IncomingEvent.objects.get()
+        self.assertEqual((incoming.status, incoming.attempts), (IncomingEvent.Status.ATTACHED, 1))
+        self.assertEqual(Event.objects.get().incident.root_cause_ci.name, 'web-01')
+
+    def test_webhook_requires_token(self):
+        body = {'event_id': 1, 'host': 'web-01', 'name': 'x'}
+        self.assertEqual(self.client.post('/api/events/zabbix/', body, content_type='application/json').status_code, 403)
+        self.assertEqual(IncomingEvent.objects.count(), 0)
+        response = self.client.post('/api/events/zabbix/', body, content_type='application/json',
+                                    headers={'X-Webhook-Token': settings.WEBHOOK_TOKEN})
+        self.assertEqual(response.status_code, 202)
+        self.assertEqual(IncomingEvent.objects.count(), 1)
 
     def test_only_engineer_takes_and_closes(self):
         for username in ('admin', 'orlova'):

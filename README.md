@@ -10,18 +10,17 @@
 
 | Папка | Что внутри | Кто ведёт |
 |---|---|---|
-| `backend/` | Сервер: Python, Django, Django REST Framework, Celery | Бэкенд |
+| `backend/` | Сервер: Python, Django, Django REST Framework; обработка событий в PostgreSQL (PL/pgSQL) | Бэкенд |
 | `frontend/` | Интерфейс: React, TypeScript | Фронтенд |
-| `infra/` | docker-compose для инфраструктуры системы: PostgreSQL, RabbitMQ, Mailpit | Фронтенд |
+| `infra/` | docker-compose для инфраструктуры системы: PostgreSQL, Mailpit | Фронтенд |
 | `stand/` | Тестовый стенд: Zabbix, Prometheus, наблюдаемые сервисы, Mattermost | Фронтенд |
 | `docs/` | Диаграммы, схемы, черновики глав | Оба |
 
 ## Стек
 
 - **Фронтенд:** React, TypeScript, React Router, TanStack Query
-- **Бэкенд:** Python, Django, Django REST Framework, Celery
-- **Брокер сообщений:** RabbitMQ
-- **База данных:** PostgreSQL
+- **Бэкенд:** Python, Django, Django REST Framework
+- **База данных:** PostgreSQL; события обрабатывает триггер на PL/pgSQL
 - **Источники событий (стенд):** Zabbix, Prometheus + Alertmanager
 - **Каналы оповещений:** Mattermost (на собственном сервере), электронная почта
 

@@ -1,16 +1,16 @@
 # Бэкенд
 
-Django + Django REST Framework (API-сервер) и Celery (обработчик событий и оповещений).
+Django + Django REST Framework (API-сервер). События обрабатывает триггер на PL/pgSQL в PostgreSQL, отдельного обработчика и брокера сообщений нет.
 
 | Приложение | Что внутри |
 |---|---|
 | `api/` | Каталог (отделы, сотрудники, сервисы, ресурсы с зависимостями), инциденты, история, события; API на чтение; тестовые данные (`load_mocks`) |
-| `processing/` | Прием событий от Zabbix и Alertmanager, обработка в Celery (группировка в инцидент, первопричина, состояние сервисов, автозакрытие), рассылка оповещений, кнопки «Взять в работу» и «Закрыть», подписки |
+| `processing/` | Прием событий от Zabbix и Alertmanager; функции обработки для базы (миграция `0005`: группировка в инцидент, первопричина, состояние сервисов, автозакрытие) и эталон на Python в `logic.py`; функции рассылки оповещений (автоматически не вызываются), кнопки «Взять в работу» и «Закрыть», подписки |
 | `accounts/` | Вход по логину и паролю, роли: администратор, инженер, руководитель |
 
 ## Запуск
 
-Сначала поднять инфраструктуру (PostgreSQL, RabbitMQ, Mailpit): `cd infra && docker compose up -d`.
+Сначала поднять инфраструктуру (PostgreSQL, Mailpit): `cd infra && docker compose up -d`.
 
 ```
 cd backend
@@ -21,11 +21,10 @@ python manage.py migrate
 python manage.py demo_reset      # тестовые данные
 ```
 
-Дальше нужны два окна терминала (в обоих активировать venv):
+Дальше нужен только API-сервер, обработчик отдельно запускать не нужно:
 
 ```
 python manage.py runserver                 # API-сервер, http://localhost:8000/api/
-celery -A config worker -l info --pool=solo   # обработчик событий (--pool=solo нужен и на Windows, и на macOS)
 ```
 
 И фронтенд: `cd frontend && npm run dev`, открыть http://localhost:5173.
@@ -67,7 +66,7 @@ python manage.py demo_failure --recover  # прислать события о в
 | `POST /api/events/zabbix/` | Zabbix, способ оповещения «Webhook» | `{"event_id": "{EVENT.ID}", "status": "{EVENT.VALUE}", "host": "{HOST.HOST}", "name": "{EVENT.NAME}", "severity": "{EVENT.NSEVERITY}"}` |
 | `POST /api/events/alertmanager/` | Alertmanager, `webhook_configs` | стандартный формат Alertmanager; ресурс берется из метки `resource` или `instance` |
 
-Ответ сразу `202 Принято`, обработка идет в Celery. Мониторинг обязан передавать секретный ключ в заголовке `X-Webhook-Token`, иначе ответ `403`. При разработке ключ `dev-webhook-token`.
+Ответ `202 Принято` приходит после обработки: триггер в базе обрабатывает событие в той же транзакции, что и запись. Мониторинг обязан передавать секретный ключ в заголовке `X-Webhook-Token`, иначе ответ `403`. При разработке ключ `dev-webhook-token`.
 
 ## Обработка в базе (PL/pgSQL)
 
@@ -76,7 +75,7 @@ python manage.py demo_failure --recover  # прислать события о в
 - Статус события, `processed_at` (через `clock_timestamp()`), `attempts` и текст ошибки ставятся в той же транзакции.
 - При ошибке откатывается только обработка: событие остается со статусом «Ошибка обработки» (`failed`), с текстом ошибки и счетчиком попыток. Автоматических повторов нет.
 - Блокировка склейки (`pg_advisory_xact_lock`) держится до конца транзакции, то есть на время обработки одного события.
-- Ручной повтор событий с ошибкой, вне явной транзакции (после каждого события `COMMIT`):
+- Ручной повтор событий с ошибкой, вне явной транзакции (после каждого события `COMMIT`): `python manage.py reprocess_events` или
 
   ```
   docker exec -it vkr-postgres psql -U monitoring -d monitoring -c 'CALL reprocess_failed();'
@@ -98,7 +97,6 @@ python manage.py demo_failure --recover  # прислать события о в
 | Переменная | По умолчанию | Зачем |
 |---|---|---|
 | `POSTGRES_HOST`, `POSTGRES_PORT` | `localhost`, `5432` | База данных |
-| `CELERY_BROKER_URL` | `amqp://monitoring:monitoring@localhost:5672//` | RabbitMQ |
 | `EMAIL_HOST`, `EMAIL_PORT` | `localhost`, `1025` | Почта (Mailpit) |
 | `MATTERMOST_WEBHOOK_URL` | пусто | Входящий вебхук канала Mattermost; пусто — в Mattermost не пишем |
 | `EVENT_GROUP_WINDOW_MINUTES` | `5` | Окно группировки событий в инцидент для эталона на Python; в базе — `processing.group_window_minutes` |
@@ -108,6 +106,8 @@ python manage.py demo_failure --recover  # прислать события о в
 | `DJANGO_ALLOWED_HOSTS`, `CSRF_TRUSTED_ORIGINS` | `localhost,127.0.0.1`, `http://localhost:5173` | С каких адресов можно обращаться |
 
 ## Что пока упрощено
+
+- **Рассылки в этой ветке нет.** Триггер не принимает решения об оповещении, а функции в `processing/tasks.py` никто не вызывает автоматически, поэтому письма и сообщения об инцидентах не уходят. Ветка нужна для сравнения обработки по времени, как рабочую систему ее не выкладывать.
 
 - Пользователями и ролями администратор управляет через админку Django, отдельной страницы на сайте пока нет.
 - Нет ограничения числа попыток входа.

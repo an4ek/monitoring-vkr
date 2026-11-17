@@ -1,4 +1,4 @@
-# Инфраструктура системы для разработки: база данных, брокер сообщений, почта.
+# Инфраструктура системы для разработки: база данных и почта.
 # Запуск: cd infra && docker compose up -d
 # Остановка: docker compose down   (данные сохраняются)
 # Полный сброс данных: docker compose down -v
@@ -24,24 +24,6 @@ services:
       timeout: 3s
       retries: 10
 
-  rabbitmq:
-    image: rabbitmq:3.13-management
-    container_name: vkr-rabbitmq
-    restart: unless-stopped
-    environment:
-      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-monitoring}
-      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-monitoring}
-    ports:
-      - "5672:5672"    # для Celery и бэкенда
-      - "15672:15672"  # веб-панель: http://localhost:15672
-    volumes:
-      - rabbitdata:/var/lib/rabbitmq
-    healthcheck:
-      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-
   mailpit:
     image: axllent/mailpit
     container_name: vkr-mailpit
@@ -54,4 +36,3 @@ services:
   
 volumes:
   pgdata:
-  rabbitdata:

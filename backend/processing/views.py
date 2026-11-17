@@ -1,10 +1,8 @@
 """API, которое добавляет обработка событий.
 """
 import hmac
-import logging
 from django.conf import settings
 from django.db import IntegrityError, transaction
-from django.db import transaction
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import exceptions, mixins, serializers, status, viewsets
@@ -18,10 +16,7 @@ from api.serializers import IncidentSerializer, ResourceSerializer, ServiceSeria
 
 from api.models import Subscription
 from .normalize import InvalidEvent, from_alertmanager, from_zabbix
-from .tasks import process_event
 from .models import IncomingEvent
-
-logger = logging.getLogger(__name__)
 
 def _token(request):
     token = request.headers.get('X-Webhook-Token', '')
@@ -39,29 +34,15 @@ def _accept(request, normalizer):
     except InvalidEvent as error:
         return Response({'detail': str(error)}, status=status.HTTP_400_BAD_REQUEST)
 
-    to_queue, duplicates = [], 0
+    duplicates = 0
     for event in events:
         try:
-            # Если база недоступна, исключение уйдет наружу (500), и мониторинг повторит отправку
+            # Обработку запускает триггер в базе при вставке, в этой же транзакции.
+            # Если база недоступна, исключение уйдет наружу (500), и мониторинг повторит отправку.
             with transaction.atomic():
-                incoming = IncomingEvent.objects.create(**event, payload=request.data)
+                IncomingEvent.objects.create(**event, payload=request.data)
         except IntegrityError:
-            duplicates += 1
-            # Повтор от мониторинга. Если прошлая попытка обработки не дошла до конца
-            # (статус все еще «Принято»), ставим в очередь еще раз.
-            incoming = IncomingEvent.objects.filter(
-                source=event['source'], external_id=event['external_id'], kind=event['kind'],
-            ).first()
-            if incoming and incoming.status == IncomingEvent.Status.NEW:
-                to_queue.append(incoming.id)
-            continue
-        to_queue.append(incoming.id)
-
-    for incoming_id in to_queue:
-        try:
-            process_event.delay(incoming_id)
-        except Exception:  # noqa: BLE001 — брокер недоступен: событие уже в базе, его подберет reprocess_events
-            logger.exception('Не удалось поставить событие %s в очередь', incoming_id)
+            duplicates += 1  # повтор от мониторинга: событие уже принято и обработано
 
     return Response(
         {'status': 'Принято', 'events': len(events), 'duplicates': duplicates},

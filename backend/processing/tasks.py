@@ -1,44 +1,19 @@
-"""Задачи обработчика (Celery). API-сервер кладет их в очередь RabbitMQ,
-обработчик забирает и выполняет.
+"""Рассылка оповещений: функции без очереди задач.
 
-  process_event       — обработать одно событие (диаграмма «Обработка события»)
+В этой ветке события обрабатывает триггер в базе, рассылки там пока нет,
+поэтому эти функции автоматически не вызываются. Их можно вызвать вручную
+(например, из manage.py shell); повтор неудачной отправки не планируется сам.
+
   send_notifications  — разослать оповещения по инциденту (диаграмма «Рассылка оповещений»)
-  retry_notification  — повторить неудачную отправку (до 3 раз через 1 минуту)
+  retry_notification  — повторить неудачную отправку (до 3 повторов)
   notify_admin        — сообщить администратору о событии с неизвестным ресурсом
 """
-from celery import shared_task
 from django.conf import settings
-from django.utils import timezone
 
-from api.models import Incident, IncidentTimeline
+from api.models import Incident, IncidentTimeline, Notification
 
-from . import logic, notify
+from . import notify
 from .models import IncomingEvent
-from api.models import Notification
-
-
-@shared_task(bind=True, max_retries=5)
-def process_event(self, incoming_id):
-    incoming = IncomingEvent.objects.filter(id=incoming_id).first()
-    if incoming is None or incoming.status != IncomingEvent.Status.NEW:
-        return 'skipped'  # уже обработано или такого нет
-
-    try:
-        result, incident_id, notify_needed = logic.process(incoming)
-    except Exception as error:  # noqa: BLE001
-        incoming.error = str(error)[:1000]
-        if self.request.retries >= self.max_retries:
-            incoming.status = IncomingEvent.Status.FAILED
-            incoming.save(update_fields=['status', 'error'])
-            raise
-        incoming.save(update_fields=['error'])
-        raise self.retry(exc=error, countdown=10 * 2 ** self.request.retries)
-
-    if result == 'unknown_resource':
-        notify_admin.delay(incoming.id)
-    if notify_needed:
-        send_notifications.delay(incident_id)
-    return result
 
 
 def _history(incident, text):
@@ -66,7 +41,6 @@ def _who(notification):
     return f'{name} ({notification.get_channel_display()})'
 
 
-@shared_task
 def send_notifications(incident_id):
     incident = Incident.objects.select_related('root_cause_ci__owner').get(id=incident_id)
     recipients = notify.collect_recipients(incident)
@@ -83,9 +57,6 @@ def send_notifications(incident_id):
                 sent[kind].append(_who(notification))
             else:
                 retry.append(_who(notification))
-                retry_notification.apply_async(
-                    (notification.id,), countdown=settings.NOTIFY_RETRY_DELAY_SECONDS,
-                )
 
     # Шаг 14 на диаграмме: записать в историю, кого и куда оповестили
     parts = []
@@ -96,10 +67,9 @@ def send_notifications(incident_id):
     if parts:
         _history(incident, 'Оповещены: ' + '; '.join(parts))
     if retry:
-        _history(incident, 'Не удалось отправить, повтор через минуту: ' + ', '.join(retry))
+        _history(incident, 'Не удалось отправить: ' + ', '.join(retry))
 
 
-@shared_task
 def retry_notification(notification_id):
     notification = Notification.objects.select_related('person', 'incident').get(id=notification_id)
     if notification.status != Notification.Status.PENDING:
@@ -112,11 +82,8 @@ def retry_notification(notification_id):
         notification.status = Notification.Status.FAILED
         notification.save(update_fields=['status'])
         _history(notification.incident, f'Не удалось оповестить после {notification.attempts} попыток: {_who(notification)}')
-        return
-    retry_notification.apply_async((notification.id,), countdown=settings.NOTIFY_RETRY_DELAY_SECONDS)
 
 
-@shared_task
 def notify_admin(incoming_id):
     incoming = IncomingEvent.objects.get(id=incoming_id)
     notification = Notification.objects.create(
@@ -130,5 +97,4 @@ def notify_admin(incoming_id):
             'Добавьте ресурс в каталог или исправьте его имя в мониторинге.'
         ),
     )
-    if not _try_send(notification):
-        retry_notification.apply_async((notification.id,), countdown=settings.NOTIFY_RETRY_DELAY_SECONDS)
+    _try_send(notification)
