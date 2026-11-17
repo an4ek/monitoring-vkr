@@ -69,6 +69,30 @@ python manage.py demo_failure --recover  # прислать события о в
 
 Ответ сразу `202 Принято`, обработка идет в Celery. Мониторинг обязан передавать секретный ключ в заголовке `X-Webhook-Token`, иначе ответ `403`. При разработке ключ `dev-webhook-token`.
 
+## Обработка в базе (PL/pgSQL)
+
+Событие обрабатывает триггер `processing_incomingevent_process` (AFTER INSERT на `processing_incomingevent`) сразу при вставке, в той же транзакции. Функции и триггер создает миграция `processing/0005_plpgsql_processing.py`; логика та же, что в `processing/logic.py` (он оставлен как эталон для проверок), но без рассылки.
+
+- Статус события, `processed_at` (через `clock_timestamp()`), `attempts` и текст ошибки ставятся в той же транзакции.
+- При ошибке откатывается только обработка: событие остается со статусом «Ошибка обработки» (`failed`), с текстом ошибки и счетчиком попыток. Автоматических повторов нет.
+- Блокировка склейки (`pg_advisory_xact_lock`) держится до конца транзакции, то есть на время обработки одного события.
+- Ручной повтор событий с ошибкой, вне явной транзакции (после каждого события `COMMIT`):
+
+  ```
+  docker exec -it vkr-postgres psql -U monitoring -d monitoring -c 'CALL reprocess_failed();'
+  ```
+
+- Окно склейки в базе задается отдельно от `EVENT_GROUP_WINDOW_MINUTES`, параметром `processing.group_window_minutes` (по умолчанию 5):
+
+  ```
+  ALTER DATABASE monitoring SET processing.group_window_minutes = '10';
+  ```
+
+  Действует для новых подключений. Если меняете `EVENT_GROUP_WINDOW_MINUTES`, поменяйте и его.
+- Параметр `processing.trigger_off = 'on'` отключает триггер. Он нужен только тестам, которые проверяют эталон на Python.
+
+Ограничение: отмена запроса или таймаут (`query_canceled`, например `statement_timeout`), обрыв соединения и ошибка внутри самого обработчика ошибок не перехватываются. Тогда откатывается вся вставка вместе с событием, вебхук отвечает `500`, и мониторинг присылает событие повторно.
+
 ## Настройки (переменные окружения)
 
 | Переменная | По умолчанию | Зачем |
@@ -77,7 +101,7 @@ python manage.py demo_failure --recover  # прислать события о в
 | `CELERY_BROKER_URL` | `amqp://monitoring:monitoring@localhost:5672//` | RabbitMQ |
 | `EMAIL_HOST`, `EMAIL_PORT` | `localhost`, `1025` | Почта (Mailpit) |
 | `MATTERMOST_WEBHOOK_URL` | пусто | Входящий вебхук канала Mattermost; пусто — в Mattermost не пишем |
-| `EVENT_GROUP_WINDOW_MINUTES` | `5` | Окно группировки событий в инцидент |
+| `EVENT_GROUP_WINDOW_MINUTES` | `5` | Окно группировки событий в инцидент для эталона на Python; в базе — `processing.group_window_minutes` |
 | `WEBHOOK_TOKEN` | `dev-webhook-token` (только при разработке) | Ключ для приема событий |
 | `DJANGO_DEBUG` | `1` | `0` на сервере: тогда обязательны свои `DJANGO_SECRET_KEY` и `WEBHOOK_TOKEN`, а `demo_reset` не работает |
 | `DJANGO_SECRET_KEY` | ключ разработки | Секретный ключ Django |

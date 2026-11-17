@@ -3,6 +3,7 @@ from django.db import models
 
 class IncomingEvent(models.Model):
     """Принятое событие (буфер). Отдельная таблица в основной базе.
+    Обрабатывается триггером в базе сразу после вставки (миграция 0005).
     payload — тело запроса так, как его прислал мониторинг."""
     class Source(models.TextChoices):
         ZABBIX = 'zabbix', 'Zabbix'
@@ -29,6 +30,7 @@ class IncomingEvent(models.Model):
     processed_at = models.DateTimeField(null=True, blank=True)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.NEW)
     error = models.TextField(blank=True)
+    attempts = models.IntegerField(default=0, db_default=0)  # сколько раз событие обрабатывали
     payload = models.JSONField(default=dict)
 
     class Meta:
