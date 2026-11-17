@@ -1,4 +1,5 @@
 from django.db import models
+from django.utils import timezone
 
 
 class IncomingEvent(models.Model):
@@ -14,6 +15,7 @@ class IncomingEvent(models.Model):
 
     class Status(models.TextChoices):
         NEW = 'new', 'Принято'
+        PROCESSING = 'processing', 'В обработке'
         ATTACHED = 'attached', 'Обработано'
         RECOVERED = 'recovered', 'Восстановление обработано'
         UNKNOWN_RESOURCE = 'unknown_resource', 'Ресурса нет в каталоге'
@@ -31,9 +33,13 @@ class IncomingEvent(models.Model):
     error = models.TextField(blank=True)
     payload = models.JSONField(default=dict)
 
+    attempts = models.PositiveSmallIntegerField(default=0)
+    locked_at = models.DateTimeField(null=True, blank=True)
+    available_at = models.DateTimeField(default=timezone.now, db_index=True)
+
     class Meta:
         ordering = ['received_at']
         constraints = [
             models.UniqueConstraint(fields=['source', 'external_id', 'kind'], name='unique_incoming_event'),
         ]
-        indexes = [models.Index(fields=['status', 'received_at'])]
+        indexes = [models.Index(fields=['status', 'available_at', 'received_at'])]

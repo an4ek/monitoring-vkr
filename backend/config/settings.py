@@ -96,6 +96,7 @@ DATABASES = {
         'PASSWORD': 'monitoring',
         'HOST': os.environ.get('POSTGRES_HOST', 'localhost'),
         'PORT': os.environ.get('POSTGRES_PORT', '5432'),
+        'CONN_MAX_AGE': 600,
     },
     'raw': {
         'ENGINE': 'django.db.backends.postgresql',
@@ -104,6 +105,7 @@ DATABASES = {
         'PASSWORD': 'monitoring',
         'HOST': os.environ.get('POSTGRES_HOST', 'localhost'),
         'PORT': os.environ.get('POSTGRES_RAW_PORT', '5433'),
+        'CONN_MAX_AGE': 600,
     }
 }
 
