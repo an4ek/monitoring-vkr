@@ -164,29 +164,31 @@ class LoadClient:
         await self._session.close()
 
     async def send_webhook(self) -> None:
-        t0 = time.perf_counter()
-        second = int(t0 - self.metrics.start_ts)
-        headers = {"X-Webhook-Token": WEBHOOK_TOKEN, "Content-Type": "application/json"}
-        try:
-            async with self._session.post(
-                f"{API_URL}/events/zabbix/", 
-                json=make_zabbix_payload(), 
-                headers=headers
-            ) as r:
-                await r.read()
-                self.metrics.record_write(time.perf_counter() - t0, r.status, second)
-        except Exception:
-            self.metrics.record_error()
+        async with self.sem:
+            t0 = time.perf_counter()
+            second = int(t0 - self.metrics.start_ts)
+            headers = {"X-Webhook-Token": WEBHOOK_TOKEN, "Content-Type": "application/json"}
+            try:
+                async with self._session.post(
+                    f"{API_URL}/events/zabbix/", 
+                    json=make_zabbix_payload(), 
+                    headers=headers
+                ) as r:
+                    await r.read()
+                    self.metrics.record_write(time.perf_counter() - t0, r.status, second)
+            except Exception:
+                self.metrics.record_error()
 
     async def read_incidents(self) -> None:
-        t0 = time.perf_counter()
-        second = int(t0 - self.metrics.start_ts)
-        try:
-            async with self._session.get(f"{API_URL}/incidents/") as r:
-                await r.read()
-                self.metrics.record_read(time.perf_counter() - t0, r.status, second)
-        except Exception:
-            self.metrics.record_error()
+        async with self.sem:
+            t0 = time.perf_counter()
+            second = int(t0 - self.metrics.start_ts)
+            try:
+                async with self._session.get(f"{API_URL}/incidents/") as r:
+                    await r.read()
+                    self.metrics.record_read(time.perf_counter() - t0, r.status, second)
+            except Exception:
+                self.metrics.record_error()
 
 
 # ---------- Сценарии ----------
