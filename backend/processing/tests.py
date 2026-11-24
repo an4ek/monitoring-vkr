@@ -1,8 +1,9 @@
 """Проверки обработки событий. Запуск: python manage.py test processing
 
-Обработка идет триггером в базе (миграция processing/0005). Те же сценарии
-прогоняются и через эталон на Python (processing/logic.py) с выключенным триггером,
-а EquivalenceTests сравнивает, что оба пути дают одинаковые данные.
+Обработка идет конвейером в базе (миграция processing/0006 и функции из 0005).
+Те же сценарии прогоняются и через эталон на Python (processing/logic.py)
+с выключенным триггером, а EquivalenceTests сравнивает, что оба пути дают
+одинаковые данные.
 """
 from unittest import mock
 
@@ -286,6 +287,74 @@ def snapshot():
             for e in IncomingEvent.objects.all()
         ),
     }
+
+
+@override_settings(PASSWORD_HASHERS=['django.contrib.auth.hashers.MD5PasswordHasher'])
+class PipelineTests(TestCase):
+    """Конвейер: landing -> поток -> кэш -> CMDB -> архив."""
+
+    def setUp(self):
+        reset_demo_data()
+
+    def counts(self):
+        with connection.cursor() as cursor:
+            cursor.execute("""
+                SELECT
+                    (SELECT count(*) FROM processing_eventstream),
+                    (SELECT count(*) FROM processing_eventcache),
+                    (SELECT count(*) FROM processing_eventarchive)
+            """)
+            return cursor.fetchone()
+
+    def test_batch_goes_through_stream_and_archive(self):
+        events = [zabbix(1, 'web-01'), zabbix(2, 'db-01')]
+        IncomingEvent.objects.bulk_create(
+            [IncomingEvent(**event, payload=event) for event in events],
+        )
+        self.assertEqual(self.counts(), (0, 0, 2))  # поток и кэш очищены
+
+        incoming = list(IncomingEvent.objects.order_by('id'))
+        self.assertTrue(all(e.enqueued_at is not None for e in incoming))
+        self.assertEqual({e.status for e in incoming}, {IncomingEvent.Status.ATTACHED})
+
+        with connection.cursor() as cursor:
+            cursor.execute("""
+                SELECT result, count(*)
+                FROM processing_eventarchive
+                GROUP BY result
+            """)
+            self.assertEqual(cursor.fetchall(), [('attached', 2)])
+
+    def test_batch_larger_than_limit_is_drained(self):
+        # Лимит меньше пачки: триггер обязан дообработать остаток, иначе
+        # в синхронном режиме строки зависнут в первой таблице.
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT set_config('processing.pipeline_batch_size', '1', true)")
+        events = [zabbix(1, 'web-01'), zabbix(2, 'db-01')]
+        IncomingEvent.objects.bulk_create(
+            [IncomingEvent(**event, payload=event) for event in events],
+        )
+        self.assertEqual(self.counts(), (0, 0, 2))
+        self.assertEqual(
+            set(IncomingEvent.objects.values_list('status', flat=True)),
+            {IncomingEvent.Status.ATTACHED},
+        )
+
+    def test_async_mode_leaves_events_in_stream(self):
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT set_config('processing.pipeline_autostart', 'off', true)")
+        incoming = feed(1, 'web-01')
+        self.assertEqual(self.counts(), (1, 0, 0))  # триггер только положил в поток
+        incoming.refresh_from_db()
+        self.assertEqual(incoming.status, IncomingEvent.Status.NEW)
+
+        with connection.cursor() as cursor:
+            cursor.execute('SELECT ingested, cached, processed, failed, archived '
+                           'FROM processing_pipeline_run(100)')
+            self.assertEqual(cursor.fetchone(), (0, 1, 1, 0, 1))
+        self.assertEqual(self.counts(), (0, 0, 1))
+        incoming.refresh_from_db()
+        self.assertEqual(incoming.status, IncomingEvent.Status.ATTACHED)
 
 
 @override_settings(PASSWORD_HASHERS=['django.contrib.auth.hashers.MD5PasswordHasher'])

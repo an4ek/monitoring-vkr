@@ -1,6 +1,14 @@
 # Инфраструктура для разработки
 
-PostgreSQL и Mailpit в Docker.
+PostgreSQL с расширением TimescaleDB и Mailpit в Docker.
+
+Образ `timescale/timescaledb` нужен, чтобы таблица потока событий
+(`processing_eventstream`) была hypertable. Если TimescaleDB недоступен,
+миграция создает обычную таблицу, и конвейер продолжает работать.
+
+Расширение подключается через `shared_preload_libraries=timescaledb` в
+`docker-compose.yml`. Для нового тома это делает сам образ, но при уже
+существующем каталоге данных параметр нужно задать явно.
 
 ## Запуск
 

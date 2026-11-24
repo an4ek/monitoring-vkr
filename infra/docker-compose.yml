@@ -7,10 +7,15 @@ name: vkr-infra
 
 services:
   postgres:
-    image: postgres:16
+    # TimescaleDB: поток событий хранится в hypertable. На обычном PostgreSQL
+    # конвейер тоже работает — таблица потока просто остается обычной.
+    image: timescale/timescaledb:latest-pg16
     container_name: vkr-postgres
     restart: unless-stopped
-    command: postgres -c max_connections=500
+    # shared_preload_libraries нужен расширению TimescaleDB. Для нового тома его
+    # ставит образ, но при уже существующем каталоге данных параметр надо задать
+    # явно, иначе миграция создаст обычную таблицу вместо hypertable.
+    command: postgres -c max_connections=500 -c shared_preload_libraries=timescaledb
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-monitoring}
       POSTGRES_USER: ${POSTGRES_USER:-monitoring}

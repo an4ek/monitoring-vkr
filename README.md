@@ -12,7 +12,7 @@
 |---|---|---|
 | `backend/` | Сервер: Python, Django, Django REST Framework; обработка событий в PostgreSQL (PL/pgSQL) | Бэкенд |
 | `frontend/` | Интерфейс: React, TypeScript | Фронтенд |
-| `infra/` | docker-compose для инфраструктуры системы: PostgreSQL, Mailpit | Фронтенд |
+| `infra/` | docker-compose для инфраструктуры системы: PostgreSQL + TimescaleDB, Mailpit | Фронтенд |
 | `stand/` | Тестовый стенд: Zabbix, Prometheus, наблюдаемые сервисы, Mattermost | Фронтенд |
 | `docs/` | Диаграммы, схемы, черновики глав | Оба |
 
@@ -20,7 +20,7 @@
 
 - **Фронтенд:** React, TypeScript, React Router, TanStack Query
 - **Бэкенд:** Python, Django, Django REST Framework
-- **База данных:** PostgreSQL; события обрабатывает триггер на PL/pgSQL
+- **База данных:** PostgreSQL + TimescaleDB; конвейер событий (landing → поток → кэш → CMDB → архив) на PL/pgSQL
 - **Источники событий (стенд):** Zabbix, Prometheus + Alertmanager
 - **Каналы оповещений:** Mattermost (на собственном сервере), электронная почта
 

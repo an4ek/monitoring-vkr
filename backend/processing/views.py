@@ -1,8 +1,10 @@
 """API, которое добавляет обработка событий.
 """
 import hmac
+import json
+
 from django.conf import settings
-from django.db import IntegrityError, transaction
+from django.db import connection, transaction
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import exceptions, mixins, serializers, status, viewsets
@@ -16,7 +18,6 @@ from api.serializers import IncidentSerializer, ResourceSerializer, ServiceSeria
 
 from api.models import Subscription
 from .normalize import InvalidEvent, from_alertmanager, from_zabbix
-from .models import IncomingEvent
 
 def _token(request):
     token = request.headers.get('X-Webhook-Token', '')
@@ -34,18 +35,38 @@ def _accept(request, normalizer):
     except InvalidEvent as error:
         return Response({'detail': str(error)}, status=status.HTTP_400_BAD_REQUEST)
 
-    duplicates = 0
-    for event in events:
-        try:
-            # Обработку запускает триггер в базе при вставке, в этой же транзакции.
-            # Если база недоступна, исключение уйдет наружу (500), и мониторинг повторит отправку.
-            with transaction.atomic():
-                IncomingEvent.objects.create(**event, payload=request.data)
-        except IntegrityError:
-            duplicates += 1  # повтор от мониторинга: событие уже принято и обработано
+    # Весь запрос пишем одной пачкой: один INSERT и один вызов конвейера.
+    # ON CONFLICT ... RETURNING сразу дает точное число принятых строк,
+    # поэтому не нужно считать всю таблицу до и после вставки.
+    # status, error и attempts передаем явно: в БД у них нет DEFAULT.
+    # Если база недоступна, исключение уйдет наружу (500), и мониторинг повторит отправку.
+    inserted = 0
+    if events:
+        placeholders = ', '.join(
+            ["(%s, %s, %s, %s, %s, %s, clock_timestamp(), 'new', '', 0, %s::jsonb)"] * len(events)
+        )
+        params = []
+        payload = json.dumps(request.data, ensure_ascii=False, default=str)
+        for event in events:
+            params.extend([
+                event['source'], event['external_id'], event['kind'],
+                event['resource_name'], event['title'], event['severity'], payload,
+            ])
+
+        with transaction.atomic(), connection.cursor() as cursor:
+            cursor.execute(
+                'INSERT INTO processing_incomingevent '
+                '(source, external_id, kind, resource_name, title, severity, received_at, '
+                ' status, error, attempts, payload) '
+                f'VALUES {placeholders} '
+                'ON CONFLICT (source, external_id, kind) DO NOTHING '
+                'RETURNING id',
+                params,
+            )
+            inserted = len(cursor.fetchall())
 
     return Response(
-        {'status': 'Принято', 'events': len(events), 'duplicates': duplicates},
+        {'status': 'Принято', 'events': len(events), 'duplicates': len(events) - inserted},
         status=status.HTTP_202_ACCEPTED,
     )
 

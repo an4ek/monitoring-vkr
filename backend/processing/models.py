@@ -2,9 +2,11 @@ from django.db import models
 
 
 class IncomingEvent(models.Model):
-    """Принятое событие (буфер). Отдельная таблица в основной базе.
-    Обрабатывается триггером в базе сразу после вставки (миграция 0005).
-    payload — тело запроса так, как его прислал мониторинг."""
+    """Первая таблица конвейера: только прием события от вебхука.
+
+    После вставки пачки триггер переносит строки в processing_eventstream
+    (TimescaleDB), откуда их забирает обработчик. payload — тело запроса так,
+    как его прислал мониторинг. enqueued_at — когда строка ушла в поток."""
     class Source(models.TextChoices):
         ZABBIX = 'zabbix', 'Zabbix'
         PROMETHEUS = 'prometheus', 'Prometheus'
@@ -27,6 +29,7 @@ class IncomingEvent(models.Model):
     title = models.CharField(max_length=300)
     severity = models.CharField(max_length=20)
     received_at = models.DateTimeField(auto_now_add=True)
+    enqueued_at = models.DateTimeField(null=True, blank=True, db_index=True)
     processed_at = models.DateTimeField(null=True, blank=True)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.NEW)
     error = models.TextField(blank=True)
