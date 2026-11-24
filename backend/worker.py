@@ -35,11 +35,11 @@ from processing.models import IncomingEvent  # noqa: E402
 
 log = logging.getLogger("worker")
 
-BATCH_SIZE = 50
+BATCH_SIZE = 100
 MAX_ATTEMPTS = 5            # после этого событие уходит в FAILED
 STUCK_AFTER = timedelta(minutes=5)   # PROCESSING дольше этого считается зависшим
 RETRY_BASE_SECONDS = 10     # задержка повтора: 10, 20, 40, 80 сек
-IDLE_MIN, IDLE_MAX = 0.1, 2.0
+IDLE_MIN, IDLE_MAX = 0.1, 1.0
 
 # Ошибки самого события: повторять бессмысленно, сразу FAILED.
 # Подгоните под исключения, которые реально бросает logic.process.
